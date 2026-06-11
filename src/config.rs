@@ -89,10 +89,21 @@ impl Config {
         let mcp_mongodb_uri = std::env::var("MDB_MCP_CONNECTION_STRING")
             .context("缺少环境变量 MDB_MCP_CONNECTION_STRING（请在 .env 中设置）")?;
 
+        // 根据当前 OS 自动选择正确的 npx 命令
+        let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
+        let server_command = if file.mcp.server_command.starts_with("npx") {
+            npx.to_string()
+        } else {
+            file.mcp.server_command
+        };
+
         Ok(Config {
             server: file.server,
             deepseek: file.deepseek,
-            mcp: file.mcp,
+            mcp: McpConfig {
+                server_command,
+                ..file.mcp
+            },
             schema: file.schema,
             deepseek_api_key,
             mcp_mongodb_uri,
