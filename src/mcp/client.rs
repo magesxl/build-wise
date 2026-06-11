@@ -90,7 +90,28 @@ impl McpClient {
             stdin: Mutex::new(stdin),
         });
 
-        // 握个手，确认可用
+        // MCP 协议握手：initialize → initialized
+        let init_result = client
+            .send_request(
+                "initialize",
+                serde_json::json!({
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "build-wise",
+                        "version": "0.1.0"
+                    }
+                }),
+            )
+            .await?;
+        tracing::info!("MCP initialize 完成: {:?}", init_result);
+
+        // 发送 initialized 通知（不需要响应）
+        client
+            .send_notification("notifications/initialized", serde_json::json!({}))
+            .await?;
+
+        // 获取 tools
         let tools = client.list_tools().await?;
         tracing::info!("MCP Server 已连接，获取到 {} 个 tools", tools.len());
 
@@ -137,6 +158,23 @@ impl McpClient {
         Ok(text)
     }
 
+    /// 发送 JSON-RPC 通知（不需要响应，无 id）
+    async fn send_notification(&self, method: &str, params: Value) -> Result<()> {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        });
+        let json = serde_json::to_string(&request)? + "\n";
+        let mut stdin = self.stdin.lock().await;
+        stdin
+            .write_all(json.as_bytes())
+            .await
+            .context("写入 stdin 失败")?;
+        stdin.flush().await.context("flush stdin 失败")?;
+        Ok(())
+    }
+
     /// 发送 JSON-RPC 请求并等待响应
     async fn send_request(&self, method: &str, params: Value) -> Result<Value> {
         let id = {
@@ -171,9 +209,10 @@ impl McpClient {
             stdin.flush().await.context("flush stdin 失败")?;
         }
 
-        // 等待响应
-        let result = rx
+        // 等待响应（30 秒超时）
+        let result = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
             .await
+            .context("MCP 请求超时（30s），请检查 MongoDB 连接和 MCP Server 是否正常")?
             .context("MCP 响应通道关闭（可能进程已退出）")??;
 
         if let Some(error) = result.get("error") {

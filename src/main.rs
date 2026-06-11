@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::from_default_env()
-                .add_directive(format!("rust_ai={}", log_level).parse()?)
+                .add_directive(format!("build_wise={}", log_level).parse()?)
         )
         .init();
     
