@@ -129,9 +129,11 @@ AI Agent 在生成代码时，请逐项确认：
 
 ### Docker
 - **构建镜像**：`docker build -t build-wise .`
-- **运行容器**：`docker run -p 3000:3000 --env-file .env build-wise`
-- **镜像说明**：多阶段构建（rust:1.85-alpine → alpine:3.21），含 Rust 二进制 + Node.js（供 MCP Server 运行）+ config.yaml
+- **单容器运行**：`docker run -p 3000:3000 --env-file .env build-wise`
+- **docker-compose 一键启动**（含 MongoDB）：`docker-compose up -d`
+- **镜像说明**：多阶段构建（rust:1-alpine → alpine:3.21），含 Rust 二进制 + Node.js（供 MCP Server 运行）+ config.yaml
 - **MCP 跨平台**：启动时自动检测 OS，Windows 用 `npx.cmd`，Linux/macOS 用 `npx`，无需手动配置
+- **容器互联**：MongoDB 同为容器时，用 docker-compose 或 `--network` 共享网络，以容器名作为 hostname
 
 ---
 

@@ -1,0 +1,8 @@
+target/
+.git/
+.idea/
+.env
+*.md
+test.html
+docs/
+.scratch/
