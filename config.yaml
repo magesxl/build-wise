@@ -1,0 +1,93 @@
+server:
+  port: 3000
+  log_level: "info"
+
+deepseek:
+  model: "deepseek-chat"
+  base_url: "https://api.deepseek.com/v1"
+  max_tokens: 4096
+
+mcp:
+  server_command: "npx.cmd"
+  server_args: ["-y", "mongodb-mcp-server"]
+  database: "bim_std"
+  collection: "xEntity"
+
+schema:
+  collections:
+    xEntity:
+      description: "BIM 模型实体集合。每个文档代表一个建筑构件（墙、房间、施工段等），属性数据存储在 propertySet 数组中。"
+      fields:
+        guid:
+          zh: "模型唯一标识"
+          description: "用户通过此字段指定要分析的模型"
+        typeName:
+          zh: "实体类型"
+          description: "构件类型，如 xRoom（房间/施工段）、xWall（墙）"
+        name:
+          zh: "名称"
+          description: "构件名称"
+        levelId:
+          zh: "所属楼层/标高"
+          description: "如 xLevel:3 表示第3层，关联 xLevel 集合"
+        boundingBox:
+          zh: "包围盒（空间位置）"
+        geoStartPosition:
+          zh: "起始桩号"
+        geoLength:
+          zh: "长度"
+        entityType:
+          zh: "实体类型定义"
+        propertySet:
+          zh: "属性集合（数组）"
+          description: "每个元素包含 paramName(属性名)、paramValue(属性值)、paramGroupId(属性分组)"
+      property_groups:
+        "工程量信息":
+          zh: "工程量信息"
+          description: "面积、体积等工程量数据"
+        "Pset_BarConstruct":
+          zh: "钢筋工程属性"
+        "Pset_LineWallFaceFinish":
+          zh: "墙面装饰属性"
+
+    xLevel:
+      description: "楼层/标高信息集合。记录每层楼的基本信息。"
+      fields:
+        guid:
+          zh: "楼层唯一标识"
+          description: "格式如 xLevel:3，xEntity 的 levelId 字段引用此值"
+        name:
+          zh: "楼层名称"
+          description: "如 一层、二层、F1、F2"
+        elevation:
+          zh: "标高"
+          description: "楼层标高值（米）"
+        elevationBase:
+          zh: "基准标高"
+        storyHeight:
+          zh: "层高"
+          description: "本层高度（米）"
+        buildingId:
+          zh: "所属建筑ID"
+          description: "关联 xBuilding 集合"
+
+    xBuilding:
+      description: "建筑/项目信息集合。记录整个建筑的基本信息。"
+      fields:
+        guid:
+          zh: "建筑唯一标识"
+        name:
+          zh: "建筑名称"
+          description: "如 万达广场1号楼"
+        buildingType:
+          zh: "建筑类型"
+          description: "如 商业、住宅、办公楼"
+        totalFloors:
+          zh: "总楼层数"
+        totalArea:
+          zh: "总建筑面积"
+          description: "单位：平方米"
+        address:
+          zh: "地址"
+        geoLocation:
+          zh: "地理位置坐标"
