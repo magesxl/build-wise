@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{oneshot, Mutex};
 
 /// MCP JSON-RPC 请求
@@ -39,7 +39,8 @@ type PendingRequests = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value>>>>>;
 pub struct McpClient {
     next_id: Mutex<u64>,
     pending: PendingRequests,
-    stdin: Mutex<ChildStdin>,
+    stdin: Mutex<Option<ChildStdin>>,
+    child: Mutex<Option<Child>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,16 +79,11 @@ impl McpClient {
             read_stdout(stdout, pending_clone).await;
         });
 
-        // 监控子进程退出
-        tokio::spawn(async move {
-            let status = child.wait().await;
-            tracing::error!("MCP Server 进程退出: {:?}", status);
-        });
-
         let client = Arc::new(Self {
             next_id: Mutex::new(1),
             pending,
-            stdin: Mutex::new(stdin),
+            stdin: Mutex::new(Some(stdin)),
+            child: Mutex::new(Some(child)),
         });
 
         // MCP 协议握手：initialize → initialized
@@ -116,6 +112,27 @@ impl McpClient {
         tracing::info!("MCP Server 已连接，获取到 {} 个 tools", tools.len());
 
         Ok(client)
+    }
+
+    /// 优雅关闭 MCP 子进程
+    pub async fn shutdown(&self) {
+        tracing::info!("正在关闭 MCP Server...");
+        if let Some(mut child) = self.child.lock().await.take() {
+            // 先尝试温柔终止（Unix: SIGTERM, Windows: 等效）
+            let _ = child.kill().await;
+            // 等待最多 2 秒
+            match tokio::time::timeout(std::time::Duration::from_secs(2), child.wait()).await {
+                Ok(Ok(status)) => tracing::info!("MCP Server 已退出: {:?}", status),
+                Ok(Err(e)) => tracing::warn!("等待 MCP Server 退出出错: {}", e),
+                Err(_) => {
+                    tracing::warn!("MCP Server 2 秒未退出，强制终止");
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                }
+            }
+        }
+        // stdin 随 child 清理自动关闭
+        drop(self.stdin.lock().await.take());
     }
 
     /// 获取可用的 tool 列表（实时查 MCP Server）
@@ -166,7 +183,8 @@ impl McpClient {
             "params": params,
         });
         let json = serde_json::to_string(&request)? + "\n";
-        let mut stdin = self.stdin.lock().await;
+        let mut guard = self.stdin.lock().await;
+        let stdin = guard.as_mut().context("MCP stdin 已关闭")?;
         stdin
             .write_all(json.as_bytes())
             .await
@@ -201,7 +219,8 @@ impl McpClient {
         // 发送请求
         let json = serde_json::to_string(&request)? + "\n";
         {
-            let mut stdin = self.stdin.lock().await;
+            let mut guard = self.stdin.lock().await;
+            let stdin = guard.as_mut().context("MCP stdin 已关闭")?;
             stdin
                 .write_all(json.as_bytes())
                 .await

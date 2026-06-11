@@ -15,9 +15,29 @@ use axum::{
 };
 use config::Config;
 use mcp::client::McpClient;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tokio_stream::StreamExt;
 use tracing_subscriber::EnvFilter;
+
+/// Ctrl+C 信号标记（Windows handler 写入，异步代码轮询）
+static CTRL_C_PRESSED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+extern "system" {
+    fn SetConsoleCtrlHandler(
+        handler: Option<unsafe extern "system" fn(u32) -> i32>,
+        add: i32,
+    ) -> i32;
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn console_ctrl_handler(_ctrl_type: u32) -> i32 {
+    CTRL_C_PRESSED.store(true, Ordering::SeqCst);
+    1 // TRUE：已处理，不要终止进程
+}
 
 /// 应用共享状态
 struct AppState {
@@ -56,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         config,
-        mcp_client,
+        mcp_client: mcp_client.clone(),
     });
 
     let app = Router::new()
@@ -68,9 +88,40 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("服务启动于 {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app).await?;
 
-    Ok(())
+    // 注册 Ctrl+C 处理器
+    #[cfg(windows)]
+    unsafe {
+        SetConsoleCtrlHandler(Some(console_ctrl_handler), 1);
+    }
+    #[cfg(not(windows))]
+    {
+        tokio::spawn(async {
+            tokio::signal::ctrl_c().await.ok();
+            CTRL_C_PRESSED.store(true, Ordering::SeqCst);
+        });
+    }
+
+    // 优雅关闭：轮询 Ctrl+C 标记
+    let shutdown_signal = async {
+        loop {
+            if CTRL_C_PRESSED.load(Ordering::SeqCst) {
+                tracing::info!("收到终止信号，正在优雅关闭...");
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    };
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
+        .await?;
+
+    // 关闭 MCP 子进程
+    mcp_client.shutdown().await;
+    tracing::info!("服务已关闭");
+
+    std::process::exit(0);
 }
 
 async fn chat_handler(
