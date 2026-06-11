@@ -70,8 +70,7 @@ pub struct PropertyGroupMapping {
 
 impl Config {
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
-        let content =
-            std::fs::read_to_string(path.as_ref()).context("读取 config.yaml 失败")?;
+        let content = std::fs::read_to_string(path.as_ref()).context("读取 config.yaml 失败")?;
 
         #[derive(Deserialize)]
         struct FileConfig {

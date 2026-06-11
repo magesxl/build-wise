@@ -7,7 +7,11 @@ use serde_json::Value;
 
 /// 构建 system prompt
 pub fn build_system_prompt(config: &Config) -> String {
-    let cols: Vec<String> = config.collection_names().iter().map(|c| format!("`{}`", c)).collect();
+    let cols: Vec<String> = config
+        .collection_names()
+        .iter()
+        .map(|c| format!("`{}`", c))
+        .collect();
     format!(
         r#"你是一个专业的建筑工程数据分析助手。你的核心任务是查询 BIM 模型数据，并以标准化的数据报告形式呈现给用户。
 
@@ -107,11 +111,15 @@ pub fn mcp_tools_to_openai(mcp_tools: &[McpTool], config: &Config) -> Vec<ChatCo
                                 let names: Vec<&str> = config.collection_names();
                                 col_obj.insert(
                                     "description".into(),
-                                    serde_json::json!(
-                                        format!("集合名称。数据库 `{}` 中可用集合: {}",
-                                            config.mcp.database,
-                                            names.iter().map(|n| format!("`{}`", n)).collect::<Vec<_>>().join(", "))
-                                    ),
+                                    serde_json::json!(format!(
+                                        "集合名称。数据库 `{}` 中可用集合: {}",
+                                        config.mcp.database,
+                                        names
+                                            .iter()
+                                            .map(|n| format!("`{}`", n))
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    )),
                                 );
                             }
                         }
@@ -156,7 +164,11 @@ pub fn describe_model_schema_tool(_config: &Config) -> ChatCompletionTool {
 pub fn handle_describe_schema(config: &Config) -> String {
     let mut desc = config.schema_description();
     let names: Vec<&str> = config.collection_names();
-    let list = names.iter().map(|n| format!("`{}`", n)).collect::<Vec<_>>().join(", ");
+    let list = names
+        .iter()
+        .map(|n| format!("`{}`", n))
+        .collect::<Vec<_>>()
+        .join(", ");
     desc.push_str(&format!(
         "\n\n## 查询提示\n\
         - 数据库: `{}`\n\
@@ -175,18 +187,20 @@ pub fn handle_describe_schema(config: &Config) -> String {
 pub fn format_tool_result(name: &str, raw: &str) -> String {
     let max_len = 8000;
     let content = if raw.len() > max_len {
-        format!("{}...（结果已截断，共 {} 字符）", &raw[..max_len], raw.len())
+        format!(
+            "{}...（结果已截断，共 {} 字符）",
+            &raw[..max_len],
+            raw.len()
+        )
     } else {
         raw.to_string()
     };
 
     match name {
-        "find" | "aggregate" => {
-            match serde_json::from_str::<Value>(&content) {
-                Ok(pretty) => serde_json::to_string_pretty(&pretty).unwrap_or(content),
-                Err(_) => content,
-            }
-        }
+        "find" | "aggregate" => match serde_json::from_str::<Value>(&content) {
+            Ok(pretty) => serde_json::to_string_pretty(&pretty).unwrap_or(content),
+            Err(_) => content,
+        },
         _ => content,
     }
 }

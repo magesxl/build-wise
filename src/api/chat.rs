@@ -5,17 +5,20 @@ use anyhow::Result;
 use async_openai::{
     config::OpenAIConfig,
     types::{
-        ChatCompletionRequestAssistantMessageArgs,
-        ChatCompletionRequestMessage,
-        ChatCompletionRequestSystemMessageArgs,
-        ChatCompletionRequestToolMessageArgs,
-        ChatCompletionRequestUserMessageArgs,
-        ChatCompletionMessageToolCall,
-        ChatCompletionToolType,
-        CreateChatCompletionRequestArgs,
-        FinishReason,
+        ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessageArgs,
+        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
+        ChatCompletionRequestToolMessageArgs, ChatCompletionRequestUserMessageArgs,
+        ChatCompletionToolType, CreateChatCompletionRequestArgs, FinishReason,
     },
     Client,
+};
+use axum::{
+    extract::State,
+    response::{
+        sse::{Event, KeepAlive},
+        Sse,
+    },
+    Json,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -32,7 +35,9 @@ pub enum SseEvent {
 impl SseEvent {
     pub fn to_json(&self) -> String {
         match self {
-            SseEvent::Content(text) => serde_json::json!({"type":"content","text":text}).to_string(),
+            SseEvent::Content(text) => {
+                serde_json::json!({"type":"content","text":text}).to_string()
+            }
             SseEvent::Done => serde_json::json!({"type":"done"}).to_string(),
             SseEvent::Error(msg) => serde_json::json!({"type":"error","text":msg}).to_string(),
         }
@@ -50,6 +55,13 @@ pub struct ChatRequest {
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+}
+
+/// 应用共享状态
+pub struct AppState {
+    pub config: Arc<Config>,
+    pub mcp_client: Arc<McpClient>,
+    pub cancel_token: tokio::sync::Mutex<Option<tokio_util::sync::CancellationToken>>,
 }
 
 pub async fn run_analysis(
@@ -127,10 +139,15 @@ async fn run_analysis_inner(
     }
 
     // 如果没有用户消息，补一条默认
-    if request.messages.is_empty() || request.messages.last().map(|m| m.role.as_str()) != Some("user") {
+    if request.messages.is_empty()
+        || request.messages.last().map(|m| m.role.as_str()) != Some("user")
+    {
         messages.push(
             ChatCompletionRequestUserMessageArgs::default()
-                .content(format!("请分析模型 {} 的建造信息。", request.model_ids.join(", ")))
+                .content(format!(
+                    "请分析模型 {} 的建造信息。",
+                    request.model_ids.join(", ")
+                ))
                 .build()?
                 .into(),
         );
@@ -138,7 +155,10 @@ async fn run_analysis_inner(
 
     // 获取 MCP Server 的 tools 并合并 describe_model_schema
     let mcp_tools = mcp_client.tools().await?;
-    tracing::info!("MCP tools 可用: {:?}", mcp_tools.iter().map(|t| &t.name).collect::<Vec<_>>());
+    tracing::info!(
+        "MCP tools 可用: {:?}",
+        mcp_tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+    );
 
     let mut tools: Vec<_> = deepseek::mcp_tools_to_openai(&mcp_tools, &config);
     tools.push(deepseek::describe_model_schema_tool(&config));
@@ -146,7 +166,11 @@ async fn run_analysis_inner(
 
     // 对话循环：最多 20 轮 tool calling
     const MAX_ROUNDS: usize = 30;
-    tracing::info!("开始 AI 对话，模型: {}，消息数: {}", config.deepseek.model, messages.len());
+    tracing::info!(
+        "开始 AI 对话，模型: {}，消息数: {}",
+        config.deepseek.model,
+        messages.len()
+    );
     for round in 0..MAX_ROUNDS {
         // 检查点 1：每轮循环开始
         if cancel.is_cancelled() {
@@ -177,7 +201,9 @@ async fn run_analysis_inner(
             let chunk = match chunk_result {
                 Ok(c) => c,
                 Err(e) => {
-                    let _ = tx.send(SseEvent::Error(format!("AI 服务错误: {}", e))).await;
+                    let _ = tx
+                        .send(SseEvent::Error(format!("AI 服务错误: {}", e)))
+                        .await;
                     return Ok(());
                 }
             };
@@ -229,12 +255,18 @@ async fn run_analysis_inner(
         }
 
         // 处理本轮结束状态
-        tracing::debug!("finish_reason: {:?}, tool_calls: {}", finish_reason, tool_call_chunks.len());
+        tracing::debug!(
+            "finish_reason: {:?}, tool_calls: {}",
+            finish_reason,
+            tool_call_chunks.len()
+        );
         match finish_reason {
             Some(FinishReason::ToolCalls) => {
                 tracing::info!("AI 请求 {} 个 tool calls", tool_call_chunks.len());
                 if tool_call_chunks.is_empty() {
-                    let _ = tx.send(SseEvent::Error("AI 请求执行工具但未指定工具".into())).await;
+                    let _ = tx
+                        .send(SseEvent::Error("AI 请求执行工具但未指定工具".into()))
+                        .await;
                     return Ok(());
                 }
 
@@ -250,16 +282,12 @@ async fn run_analysis_inner(
                 for tc in &tool_call_chunks {
                     tracing::info!("执行 tool: {} (id: {})", tc.function.name, tc.id);
                     let result = match tc.function.name.as_str() {
-                        "describe_model_schema" => {
-                            deepseek::handle_describe_schema(&config)
-                        }
+                        "describe_model_schema" => deepseek::handle_describe_schema(&config),
                         other => {
-                            let args: Value = serde_json::from_str(&tc.function.arguments)
-                                .unwrap_or(Value::Null);
+                            let args: Value =
+                                serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null);
                             match mcp_client.call_tool(other, args).await {
-                                Ok(text) => {
-                                    deepseek::format_tool_result(other, &text)
-                                }
+                                Ok(text) => deepseek::format_tool_result(other, &text),
                                 Err(e) => format!("工具调用失败: {}", e),
                             }
                         }
@@ -296,4 +324,49 @@ async fn run_analysis_inner(
         .send(SseEvent::Error("分析轮次过多，请简化提问".into()))
         .await;
     Ok(())
+}
+
+// ── HTTP handlers ──────────────────────────────────────────────
+
+pub async fn chat_handler(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ChatRequest>,
+) -> Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    tracing::info!("收到请求，模型 IDs: {:?}", request.model_ids);
+    let config = state.config.clone();
+    let mcp = state.mcp_client.clone();
+
+    // 创建新的取消令牌，替换旧令牌（旧的会被 cancel 掉）
+    let cancel = tokio_util::sync::CancellationToken::new();
+    {
+        let mut guard = state.cancel_token.lock().await;
+        if let Some(old) = guard.take() {
+            old.cancel();
+        }
+        *guard = Some(cancel.clone());
+    }
+
+    let rx = run_analysis(config, mcp, request, cancel)
+        .await
+        .unwrap_or_else(|e| {
+            let (tx, rx) = mpsc::channel(1);
+            let _ = tx.try_send(SseEvent::Error(format!("请求处理失败: {}", e)));
+            rx
+        });
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx)
+        .map(|event| Ok(Event::default().data(event.to_json())));
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+pub async fn cancel_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let mut guard = state.cancel_token.lock().await;
+    if let Some(token) = guard.take() {
+        token.cancel();
+        tracing::info!("已取消当前分析任务");
+        Json(serde_json::json!({"ok": true, "message": "已取消"}))
+    } else {
+        Json(serde_json::json!({"ok": true, "message": "无进行中的任务"}))
+    }
 }

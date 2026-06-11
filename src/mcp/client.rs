@@ -53,11 +53,7 @@ pub struct McpTool {
 
 impl McpClient {
     /// 启动 mongodb-mcp-server 子进程，完成初始化握手
-    pub async fn connect(
-        command: &str,
-        args: &[String],
-        mongodb_uri: &str,
-    ) -> Result<Arc<Self>> {
+    pub async fn connect(command: &str, args: &[String], mongodb_uri: &str) -> Result<Arc<Self>> {
         let mut child = AsyncCommand::new(command)
             .args(args)
             .env("MDB_MCP_CONNECTION_STRING", mongodb_uri)
@@ -122,12 +118,7 @@ impl McpClient {
             // 关闭 stdin，子进程收到 EOF 后应自行退出
             drop(self.stdin.lock().await.take());
             // 等待最多 2 秒
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                child.wait(),
-            )
-            .await
-            {
+            match tokio::time::timeout(std::time::Duration::from_secs(2), child.wait()).await {
                 Ok(Ok(status)) => {
                     tracing::info!("MCP Server 已退出: {:?}", status);
                     return;
@@ -242,7 +233,10 @@ impl McpClient {
             .context("MCP 响应通道关闭（可能进程已退出）")??;
 
         if let Some(error) = result.get("error") {
-            let msg = error.get("message").and_then(|m| m.as_str()).unwrap_or("未知错误");
+            let msg = error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("未知错误");
             anyhow::bail!("MCP Server 返回错误: {}", msg);
         }
 
@@ -302,10 +296,7 @@ fn extract_text_from_content(content: &Value) -> Result<String> {
 }
 
 /// 后台读取子进程 stdout，匹配响应到对应的 oneshot
-async fn read_stdout(
-    stdout: tokio::process::ChildStdout,
-    pending: PendingRequests,
-) {
+async fn read_stdout(stdout: tokio::process::ChildStdout, pending: PendingRequests) {
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
 
