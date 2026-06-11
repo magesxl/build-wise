@@ -70,37 +70,14 @@ pub struct PropertyGroupMapping {
 
 impl Config {
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
-        let content = std::fs::read_to_string(path.as_ref()).context("读取 config.yaml 失败")?;
-
-        #[derive(Deserialize)]
-        struct FileConfig {
-            server: ServerConfig,
-            deepseek: DeepSeekConfig,
-            mcp: McpConfig,
-            schema: SchemaConfig,
-        }
-
-        let file: FileConfig = serde_yaml::from_str(&content).context("解析 config.yaml 失败")?;
-
-        // 敏感信息只从环境变量读取，config.yaml 里不存
-        let deepseek_api_key = std::env::var("DEEPSEEK_API_KEY")
-            .context("缺少环境变量 DEEPSEEK_API_KEY（请在 .env 中设置）")?;
-        let mcp_mongodb_uri = std::env::var("MDB_MCP_CONNECTION_STRING")
-            .context("缺少环境变量 MDB_MCP_CONNECTION_STRING（请在 .env 中设置）")?;
-
-        // 根据当前 OS 自动选择正确的 npx 命令
-        let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
-        let server_command = if file.mcp.server_command.starts_with("npx") {
-            npx.to_string()
-        } else {
-            file.mcp.server_command
-        };
+        let file = parse_yaml_file(path)?;
+        let (deepseek_api_key, mcp_mongodb_uri) = load_secrets_from_env()?;
 
         Ok(Config {
             server: file.server,
             deepseek: file.deepseek,
             mcp: McpConfig {
-                server_command,
+                server_command: file.mcp.server_command,
                 ..file.mcp
             },
             schema: file.schema,
@@ -108,4 +85,25 @@ impl Config {
             mcp_mongodb_uri,
         })
     }
+}
+
+#[derive(Deserialize)]
+struct FileConfig {
+    server: ServerConfig,
+    deepseek: DeepSeekConfig,
+    mcp: McpConfig,
+    schema: SchemaConfig,
+}
+
+fn parse_yaml_file(path: impl AsRef<Path>) -> Result<FileConfig> {
+    let content = std::fs::read_to_string(path.as_ref()).context("读取 config.yaml 失败")?;
+    serde_yaml::from_str(&content).context("解析 config.yaml 失败")
+}
+
+fn load_secrets_from_env() -> Result<(String, String)> {
+    let api_key = std::env::var("DEEPSEEK_API_KEY")
+        .context("缺少环境变量 DEEPSEEK_API_KEY（请在 .env 中设置）")?;
+    let mongo_uri = std::env::var("MDB_MCP_CONNECTION_STRING")
+        .context("缺少环境变量 MDB_MCP_CONNECTION_STRING（请在 .env 中设置）")?;
+    Ok((api_key, mongo_uri))
 }

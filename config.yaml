@@ -8,7 +8,7 @@ deepseek:
   max_tokens: 4096
 
 mcp:
-  server_command: "npx.cmd"
+  server_command: "npx"
   server_args: ["-y", "mongodb-mcp-server"]
   database: "bim_std"
   collection: "xEntity"

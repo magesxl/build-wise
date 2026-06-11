@@ -54,7 +54,8 @@ pub struct McpTool {
 impl McpClient {
     /// 启动 mongodb-mcp-server 子进程，完成初始化握手
     pub async fn connect(command: &str, args: &[String], mongodb_uri: &str) -> Result<Arc<Self>> {
-        let mut child = AsyncCommand::new(command)
+        let resolved = resolve_npx(command);
+        let mut child = AsyncCommand::new(&resolved)
             .args(args)
             .env("MDB_MCP_CONNECTION_STRING", mongodb_uri)
             .stdin(std::process::Stdio::piped())
@@ -324,5 +325,18 @@ async fn read_stdout(stdout: tokio::process::ChildStdout, pending: PendingReques
                 tracing::warn!("无法解析 MCP 响应行: {} - {}", line, e);
             }
         }
+    }
+}
+
+/// 跨平台 npx 命令解析："npx" 在 Windows 上自动转为 "npx.cmd"
+fn resolve_npx(command: &str) -> String {
+    if command.starts_with("npx") {
+        if cfg!(windows) {
+            "npx.cmd".to_string()
+        } else {
+            "npx".to_string()
+        }
+    } else {
+        command.to_string()
     }
 }
