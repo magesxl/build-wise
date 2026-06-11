@@ -143,7 +143,7 @@ async fn run_analysis_inner(
     tracing::info!("已注册 {} 个 tools 给 DeepSeek", tools.len());
 
     // 对话循环：最多 20 轮 tool calling
-    const MAX_ROUNDS: usize = 20;
+    const MAX_ROUNDS: usize = 30;
     tracing::info!("开始 AI 对话，模型: {}，消息数: {}", config.deepseek.model, messages.len());
     for round in 0..MAX_ROUNDS {
         tracing::info!("第 {}/{} 轮对话", round + 1, MAX_ROUNDS);
