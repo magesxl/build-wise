@@ -347,8 +347,9 @@ impl ConversationDriver {
 
 fn build_system_prompt(config: &Config) -> String {
     let cols: Vec<String> = config
-        .collection_names()
-        .iter()
+        .schema
+        .collections
+        .keys()
         .map(|c| format!("`{}`", c))
         .collect();
     format!(
@@ -446,14 +447,13 @@ fn mcp_tools_to_openai(mcp_tools: &[McpTool], config: &Config) -> Vec<ChatComple
                     if let Some(props_obj) = props.as_object_mut() {
                         if let Some(col_schema) = props_obj.get_mut("collection") {
                             if let Some(col_obj) = col_schema.as_object_mut() {
-                                let names: Vec<&str> = config.collection_names();
+                                let names = config.schema.collections.keys();
                                 col_obj.insert(
                                     "description".into(),
                                     serde_json::json!(format!(
                                         "集合名称。数据库 `{}` 中可用集合: {}",
                                         config.mcp.database,
                                         names
-                                            .iter()
                                             .map(|n| format!("`{}`", n))
                                             .collect::<Vec<_>>()
                                             .join(", ")
@@ -497,10 +497,11 @@ fn describe_model_schema_tool() -> ChatCompletionTool {
 }
 
 fn handle_describe_schema(config: &Config) -> String {
-    let mut desc = config.schema_description();
-    let names: Vec<&str> = config.collection_names();
-    let list = names
-        .iter()
+    let mut desc = schema_description_text(config);
+    let list = config
+        .schema
+        .collections
+        .keys()
         .map(|n| format!("`{}`", n))
         .collect::<Vec<_>>()
         .join(", ");
@@ -516,6 +517,38 @@ fn handle_describe_schema(config: &Config) -> String {
         config.mcp.database, list,
     ));
     desc
+}
+
+fn schema_description_text(config: &Config) -> String {
+    let mut desc = String::new();
+    for (name, col) in &config.schema.collections {
+        desc.push_str(&format!(
+            "=== 集合: {} ===\n说明: {}\n",
+            name, col.description
+        ));
+        if !col.fields.is_empty() {
+            desc.push_str("字段说明:\n");
+            for (field, mapping) in &col.fields {
+                desc.push_str(&format!("  - {}: {}", field, mapping.zh));
+                if let Some(ref d) = mapping.description {
+                    desc.push_str(&format!("（{}）", d));
+                }
+                desc.push('\n');
+            }
+        }
+        if !col.property_groups.is_empty() {
+            desc.push_str("propertySet 的 paramGroupId 分组:\n");
+            for (group, mapping) in &col.property_groups {
+                desc.push_str(&format!("  - {}: {}", group, mapping.zh));
+                if let Some(ref d) = mapping.description {
+                    desc.push_str(&format!("（{}）", d));
+                }
+                desc.push('\n');
+            }
+        }
+        desc.push('\n');
+    }
+    desc.trim_end().to_string()
 }
 
 fn format_tool_result(name: &str, raw: &str) -> String {

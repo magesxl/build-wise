@@ -108,47 +108,4 @@ impl Config {
             mcp_mongodb_uri,
         })
     }
-
-    /// 生成所有集合的 Schema 描述文本
-    pub fn schema_description(&self) -> String {
-        let mut desc = String::new();
-
-        for (name, col) in &self.schema.collections {
-            desc.push_str(&format!(
-                "=== 集合: {} ===\n说明: {}\n",
-                name, col.description
-            ));
-
-            if !col.fields.is_empty() {
-                desc.push_str("字段说明:\n");
-                for (field, mapping) in &col.fields {
-                    desc.push_str(&format!("  - {}: {}", field, mapping.zh));
-                    if let Some(ref d) = mapping.description {
-                        desc.push_str(&format!("（{}）", d));
-                    }
-                    desc.push('\n');
-                }
-            }
-
-            if !col.property_groups.is_empty() {
-                desc.push_str("propertySet 的 paramGroupId 分组:\n");
-                for (group, mapping) in &col.property_groups {
-                    desc.push_str(&format!("  - {}: {}", group, mapping.zh));
-                    if let Some(ref d) = mapping.description {
-                        desc.push_str(&format!("（{}）", d));
-                    }
-                    desc.push('\n');
-                }
-            }
-
-            desc.push('\n');
-        }
-
-        desc.trim_end().to_string()
-    }
-
-    /// 列出所有集合名
-    pub fn collection_names(&self) -> Vec<&str> {
-        self.schema.collections.keys().map(|s| s.as_str()).collect()
-    }
 }
