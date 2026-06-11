@@ -22,6 +22,8 @@
 ## 后果
 
 - AI 可灵活适配不同分析需求，新增维度只需配置，不用改代码
-- `describe_model_schema` 每次请求多一跳 Tool 调用，但换取 schema 始终准确
+- MCP tools 过滤：仅暴露 `find`、`aggregate`、`count`，外加本地 `describe_model_schema`
+- System prompt 从外部文件 `prompts/system-prompt.md` 加载，`{database}` 和 `{collections}` 占位符运行时替换
 - 无状态简化部署和水平扩展，前端已能自行管理对话历史（追问按钮硬编码在前端）
-- 最大 5 轮 tool calling 防止无限循环
+- 最大 **30 轮** tool calling 防止无限循环（在每轮开始处检查取消信号）
+- `CancellationToken` 支持，由 `POST /api/cancel` 端点触发

@@ -88,17 +88,19 @@ docker-compose up -d
 
 ```text
 src/
-├── main.rs          # 应用入口：路由注册、MCP 初始化、优雅关闭
-├── config.rs        # 配置层：YAML 解析 + 环境变量覆盖
+├── main.rs          # 应用入口：路由注册、MCP 初始化、Ctrl+C 优雅关闭
+├── config.rs        # 配置层：YAML 解析 + 环境变量覆盖 + 多集合 Schema
 ├── api/
 │   ├── mod.rs       # 模块声明
-│   └── chat.rs      # POST /api/chat：SSE 流式分析端点
+│   └── chat.rs      # POST /api/chat (SSE 流式) + /api/cancel (取消任务)
 ├── ai/
 │   ├── mod.rs
-│   └── deepseek.rs  # System prompt 构建、tool 转换
+│   └── driver.rs    # ConversationDriver：prompt、tool 注册、流式合并、tool 分发
 └── mcp/
     ├── mod.rs
-    └── client.rs    # MCP stdio 客户端：JSON-RPC 通信
+    └── client.rs    # MCP stdio 客户端：JSON-RPC 通信、跨平台 npx 解析
+prompts/
+└── system-prompt.md # System prompt 模板（占位符动态替换）
 ```
 
 ## 许可证

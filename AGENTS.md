@@ -15,6 +15,7 @@
 | 前端     | 单页 HTML（`test.html`），SSE 流式响应                                                  |
 | 架构风格 | 模块化架构（api → ai / mcp → config）                                                  |
 | 模块根   | `src/main.rs`                                                                          |
+| 取消机制 | `CancellationToken` + `POST /api/cancel` 中断进行中的分析任务                           |
 
 ---
 
@@ -22,20 +23,22 @@
 
 ```text
 src/
-├── main.rs                     # 应用入口：路由注册、MCP 初始化、优雅关闭
-├── config.rs                   # 配置层：YAML 解析 + 环境变量覆盖 + Schema 描述
+├── main.rs                     # 应用入口：路由注册、MCP 初始化、Ctrl+C 优雅关闭
+├── config.rs                   # 配置层：YAML 解析 + 环境变量覆盖 + 多集合 Schema 描述
 ├── api/                        # API 层
 │   ├── mod.rs                  # 模块声明
-│   └── chat.rs                 # POST /api/chat：SSE 流式分析端点、tool-calling 对话循环
+│   └── chat.rs                 # POST /api/chat (SSE 流式分析) + /api/cancel (取消任务)
 ├── ai/                         # AI 层
 │   ├── mod.rs                  # 模块声明
-│   └── deepseek.rs             # System prompt 构建、MCP tool → OpenAI tool 转换、tool 处理
+│   └── driver.rs               # ConversationDriver：prompt 构建、tool 注册、流式合并、tool 分发
 └── mcp/                        # MCP 集成层
     ├── mod.rs                  # 模块声明
-    └── client.rs               # MCP stdio 客户端：子进程管理、JSON-RPC 通信、tools/call
+    └── client.rs               # MCP stdio 客户端：子进程管理、JSON-RPC 通信、跨平台 npx 解析
 
-config.yaml                     # 非敏感配置（端口、日志级别、模型参数、Schema）
+config.yaml                     # 非敏感配置（端口、日志级别、模型参数、多集合 Schema）
 .env                            # 敏感信息（DEEPSEEK_API_KEY、MDB_MCP_CONNECTION_STRING）
+prompts/
+└── system-prompt.md            # System prompt 模板（含占位符 {database}、{collections}）
 test.html                       # 前端测试页（SSE + Markdown 渲染）
 docs/
 ├── adr/                        # 架构决策记录（ADR）
@@ -77,13 +80,14 @@ docs/
 
 ## 4. 快速参考：新增一个完整功能流程
 
-1. `config.yaml` → 如需新配置项，先定义 Schema
+1. `config.yaml` → 如需新配置项或新集合 Schema，先定义
 2. `src/config.rs` → 添加对应 `Config` 结构体字段
 3. `src/mcp/client.rs` → 如需新 MCP 协议操作，扩展 `McpClient`
-4. `src/ai/deepseek.rs` → 调整 system prompt / tool 定义
-5. `src/api/chat.rs` → 实现对话逻辑或新端点
-6. `src/main.rs` → 注册新路由
-7. `test.html` → 如需前端变更，更新测试页
+4. `prompts/system-prompt.md` → 调整 AI 行为规范和输出格式
+5. `src/ai/driver.rs` → 调整 tool 定义、流式处理或 tool 执行逻辑
+6. `src/api/chat.rs` → 实现对话逻辑或新端点
+7. `src/main.rs` → 注册新路由
+8. `test.html` → 如需前端变更，更新测试页
 
 ## 5. 代码生成 Checklist
 
@@ -107,15 +111,17 @@ AI Agent 在生成代码时，请逐项确认：
 
 ### 6.1 分析
 
-- **系统提示词**：核心逻辑在 `src/ai/deepseek.rs:build_system_prompt()`，修改分析行为这里入手
-- **Tool Calling**：AI 自动调用 MCP 的 `find`/`aggregate`/`count` 工具查询 MongoDB，由对话循环自动执行
-- **Schema 描述**：`config.yaml` 的 `schema` 段定义了集合结构的中文语义映射，`Config::schema_description()` 生成 AI 可读的 schema 文本
+- **系统提示词**：模板在 `prompts/system-prompt.md`，运行时由 `build_system_prompt()` 替换占位符后注入。修改分析行为从模板入手
+- **Tool Calling**：AI 自动调用 MCP 的 `find`/`aggregate`/`count` 工具查询 MongoDB，外加本地 `describe_model_schema` 工具。对话循环最多 30 轮，支持 `CancellationToken` 取消
+- **Schema 描述**：`config.yaml` 的 `schema.collections` 段定义了多集合（`xEntity`/`xLevel`/`xBuilding`）的结构映射，`schema_description_text()` 生成 AI 可读文本
 
 ### 6.2 运维与修复
 
-- **Bug 修复**：先对照 `tracing` 日志定位，检查 MCP 子进程是否正常
+- **Bug 修复**：先对照 `tracing` 日志定位，检查 MCP 子进程是否正常（`McpClient::shutdown()` 含 2s 超时 + 进程树强杀）
 - **配置变更**：非敏感项改 `config.yaml`，敏感项改 `.env`（模板见 `.env.example`）
 - **MCP 问题**：检查 `npx mongodb-mcp-server` 是否可正常运行，确认 `MDB_MCP_CONNECTION_STRING` 正确
+- **跨平台**：Windows 自动用 `npx.cmd`，Unix 用 `npx`；进程树终止 Windows 用 `taskkill /T`，Unix 用 `kill -TERM -PID`
+- **取消任务**：前端可通过 `POST /api/cancel` 中断进行中的分析，服务端用 `CancellationToken` 在流式消费和 tool 执行间隙检查取消信号
 
 ## 7. 构建指令
 

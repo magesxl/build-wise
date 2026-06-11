@@ -213,7 +213,7 @@
 
 **问：** 集合名、模型 ID 字段、5 维度字段映射？
 
-**答：** 实际数据展示——`xEntity` 集合。`guid` 是模型 ID。属性在 `propertySet` 数组，`paramGroupId` 分组。展示了 `工程量信息` 分组的文档。
+**答：** 实际数据展示——`xEntity` 集合。`guid` 是模型 ID。属性在 `propertySet` 数组，`paramGroupId` 分组。展示了 `工程量信息` 分组的文档。后续扩展了 `xLevel`（楼层）和 `xBuilding`（建筑）集合支持关联查询。
 
 **追问：** 进度节点、成本、模板脚手架这三个维度的 `paramGroupId` 叫什么？
 

@@ -24,7 +24,7 @@
 ### 领域模型
 
 - **模型**：从 RVT 或 IFC 文件解析入库的 BIM 数据单元。一个建筑体可由多个模型组成。唯一标识为 `guid` 字段
-- **建造信息**：模型的属性数据，存储于 MongoDB 的 `xEntity` 集合中，业务属性全在 `propertySet` 数组，通过 `paramGroupId` 分组
+- **建造信息**：模型的属性数据，存储于 MongoDB 中。业务属性集中在 `xEntity.propertySet` 数组，通过 `paramGroupId` 分组（如"工程量信息"）。多集合支持（`xEntity` 实体 + `xLevel` 楼层 + `xBuilding` 建筑），`config.yaml` `schema.collections` 配置
 - **进度节点**：模型属性中描述施工进度阶段的字段，值为语义化名称（如"基础施工"、"主体结构封顶"）
 - **建造信息分析**：制式化的 AI 分析输出，按固定维度组织（空间位置+进度、成本、工程量、模板脚手架周转），附带快捷追问按钮
 
@@ -65,14 +65,16 @@
 - **输出风格**：数据报告（表格、数字为主），非叙事分析
 - **维度覆盖**：按需覆盖（用户问什么就分析什么），不强制 5 个维度全出
 - **缺数据处理**：某维度无数据则跳过，不编造
-- **工作方式**：每次请求先调 `describe_model_schema` Tool 了解数据结构，再生成 MongoDB 查询
+- **工作方式**：每次请求先调 `describe_model_schema` Tool 了解数据结构（含查询提示+分页约束），再生成 MongoDB 查询
+- **MCP 子进程**：Axum 自动 spawn `mongodb-mcp-server`，跨平台 npx 解析（Windows 用 `npx.cmd`，Unix 用 `npx`）
 
 ### Tool Calling 架构
 
 - 当前实现：`describe_model_schema` 为本地处理的合成 Tool（不经过 MCP Server），由 Axum 直接根据配置文件返回 schema 描述
-- MCP Server 暴露的通用 Tool（`find`、`aggregate`、`count` 等）由 Axum 透传 JSON-RPC 调用
-- 对话循环最多 5 轮 tool calling，超过则提示用户简化提问
+- MCP Server 暴露的通用 Tool（`find`、`aggregate`、`count`）由 Axum 透传 JSON-RPC 调用，其他 tool 被过滤
+- 对话循环最多 30 轮 tool calling，超过则提示用户简化提问
 - Tool 结果超过 8000 字符自动截断，防止 token 爆炸
+- **支持取消**：`CancellationToken` 在每轮开始、流式消费中、tool 执行后检查取消信号
 
 ### Schema 语义标注
 
