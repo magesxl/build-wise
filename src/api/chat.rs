@@ -69,6 +69,7 @@ pub async fn run_analysis(
         .map(|m| (m.role.clone(), m.content.clone()))
         .collect();
 
+
     tokio::spawn(async move {
         let driver = ConversationDriver::new(
             config,
