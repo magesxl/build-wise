@@ -152,6 +152,7 @@ dependencies = [
  "serde_yaml",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -1554,6 +1555,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

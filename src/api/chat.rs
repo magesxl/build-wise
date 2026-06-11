@@ -56,10 +56,11 @@ pub async fn run_analysis(
     config: Arc<Config>,
     mcp_client: Arc<McpClient>,
     request: ChatRequest,
+    cancel: tokio_util::sync::CancellationToken,
 ) -> Result<mpsc::Receiver<SseEvent>> {
     let (tx, rx) = mpsc::channel(64);
     tokio::spawn(async move {
-        if let Err(e) = run_analysis_inner(config, mcp_client, request, tx.clone()).await {
+        if let Err(e) = run_analysis_inner(config, mcp_client, request, tx.clone(), cancel).await {
             tracing::error!("分析失败: {:?}", e);
             let _ = tx.send(SseEvent::Error(format!("系统错误: {}", e))).await;
         }
@@ -72,6 +73,7 @@ async fn run_analysis_inner(
     mcp_client: Arc<McpClient>,
     request: ChatRequest,
     tx: mpsc::Sender<SseEvent>,
+    cancel: tokio_util::sync::CancellationToken,
 ) -> Result<()> {
     let openai_cfg = OpenAIConfig::default()
         .with_api_key(&config.deepseek_api_key)
@@ -146,6 +148,11 @@ async fn run_analysis_inner(
     const MAX_ROUNDS: usize = 30;
     tracing::info!("开始 AI 对话，模型: {}，消息数: {}", config.deepseek.model, messages.len());
     for round in 0..MAX_ROUNDS {
+        // 检查点 1：每轮循环开始
+        if cancel.is_cancelled() {
+            tracing::info!("收到取消信号（第 {} 轮开始），终止分析", round + 1);
+            return Ok(());
+        }
         tracing::info!("第 {}/{} 轮对话", round + 1, MAX_ROUNDS);
         let req = CreateChatCompletionRequestArgs::default()
             .model(&config.deepseek.model)
@@ -161,6 +168,12 @@ async fn run_analysis_inner(
         let mut finish_reason: Option<FinishReason> = None;
 
         while let Some(chunk_result) = stream.next().await {
+            // 检查点 2：每个 SSE chunk 后
+            if cancel.is_cancelled() {
+                tracing::info!("收到取消信号，中断 DeepSeek 流式响应");
+                drop(stream); // 断开 HTTP 连接
+                return Ok(());
+            }
             let chunk = match chunk_result {
                 Ok(c) => c,
                 Err(e) => {
@@ -259,6 +272,12 @@ async fn run_analysis_inner(
                             .build()?
                             .into(),
                     );
+
+                    // 检查点 3：每个 MCP tool call 返回后
+                    if cancel.is_cancelled() {
+                        tracing::info!("收到取消信号（tool call 后），终止分析");
+                        return Ok(());
+                    }
                 }
 
                 // 继续循环，让 AI 看到 tool 结果后重新回答

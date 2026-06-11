@@ -42,6 +42,8 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .btn-send{background:#6366f1;color:#fff}
 .btn-send:hover{background:#4f46e5}
 .btn-send:disabled{background:#a5b4fc;cursor:not-allowed}
+.btn-stop{background:#dc2626;color:#fff}
+.btn-stop:hover{background:#b91c1c}
 .status-bar{font-size:12px;color:#94a3b8;padding:8px 0;display:flex;justify-content:space-between}
 .cursor{display:inline-block;width:6px;height:14px;background:#6366f1;animation:blink .8s infinite;vertical-align:middle;margin-left:2px}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
@@ -74,6 +76,7 @@ const statusEl = document.getElementById('status-text');
 
 let messages = [];
 let streaming = false;
+let abortController = null;
 
 // 配置 marked
 marked.setOptions({ breaks: true, gfm: true });
@@ -88,6 +91,29 @@ function addMsgDiv(role) {
 
 function scroll() { box.scrollTop = box.scrollHeight; }
 
+function setButtonStop() {
+  btn.textContent = '⏹ 停止';
+  btn.className = 'btn-stop';
+  btn.disabled = false;
+  btn.onclick = stop;
+}
+
+function setButtonSend() {
+  btn.textContent = '发送';
+  btn.className = 'btn-send';
+  btn.disabled = false;
+  btn.onclick = () => send();
+}
+
+function stop() {
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+  // 同时通知后端取消
+  fetch(API.replace('/api/chat', '/api/cancel'), { method: 'POST' }).catch(() => {});
+}
+
 async function send(followupText) {
   if (streaming) return;
   const idsRaw = document.getElementById('model-input').value.trim();
@@ -96,7 +122,7 @@ async function send(followupText) {
   const text = followupText || input.value.trim();
   if (!text) return;
 
-  streaming = true; btn.disabled = true; statusEl.textContent = '分析中...';
+  streaming = true; setButtonStop(); statusEl.textContent = '分析中...';
 
   const userDiv = addMsgDiv('user');
   userDiv.textContent = text;
@@ -108,10 +134,12 @@ async function send(followupText) {
   let fullText = '';
 
   try {
+    abortController = new AbortController();
     const resp = await fetch(API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model_ids: modelIds, messages })
+      body: JSON.stringify({ model_ids: modelIds, messages }),
+      signal: abortController.signal
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
@@ -152,13 +180,18 @@ async function send(followupText) {
     }
     statusEl.textContent = '就绪';
   } catch (e) {
-    aiDiv.parentElement.className = 'msg error';
-    const roleSpan = aiDiv.parentElement.querySelector('.role');
-    if (roleSpan) roleSpan.textContent = '⚠️ 错误';
-    aiDiv.innerHTML = `请求失败: ${e.message}（确认服务已启动？cargo run）`;
-    statusEl.textContent = '请求失败';
+    if (e.name === 'AbortError') {
+      aiDiv.innerHTML = marked.parse(fullText);
+      statusEl.textContent = '已停止';
+    } else {
+      aiDiv.parentElement.className = 'msg error';
+      const roleSpan = aiDiv.parentElement.querySelector('.role');
+      if (roleSpan) roleSpan.textContent = '⚠️ 错误';
+      aiDiv.innerHTML = `请求失败: ${e.message}（确认服务已启动？cargo run）`;
+      statusEl.textContent = '请求失败';
+    }
   }
-  streaming = false; btn.disabled = false; input.focus();
+  streaming = false; abortController = null; setButtonSend(); input.focus();
 }
 </script>
 </body>
