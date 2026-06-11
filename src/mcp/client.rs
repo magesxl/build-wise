@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{Child, ChildStdin, Command as AsyncCommand};
 use tokio::sync::{oneshot, Mutex};
 
 /// MCP JSON-RPC 请求
@@ -58,12 +58,12 @@ impl McpClient {
         args: &[String],
         mongodb_uri: &str,
     ) -> Result<Arc<Self>> {
-        let mut child = Command::new(command)
+        let mut child = AsyncCommand::new(command)
             .args(args)
             .env("MDB_MCP_CONNECTION_STRING", mongodb_uri)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::null())
             .spawn()
             .context("启动 MCP Server 进程失败")?;
         tracing::info!("MCP 子进程 PID: {}", child.id().unwrap_or(0));
@@ -114,25 +114,32 @@ impl McpClient {
         Ok(client)
     }
 
-    /// 优雅关闭 MCP 子进程
+    /// 优雅关闭 MCP 子进程：关 stdin → 等 EOF 退出 → 超时则杀进程树
     pub async fn shutdown(&self) {
         tracing::info!("正在关闭 MCP Server...");
         if let Some(mut child) = self.child.lock().await.take() {
-            // 先尝试温柔终止（Unix: SIGTERM, Windows: 等效）
-            let _ = child.kill().await;
+            let pid = child.id().unwrap_or(0);
+            // 关闭 stdin，子进程收到 EOF 后应自行退出
+            drop(self.stdin.lock().await.take());
             // 等待最多 2 秒
-            match tokio::time::timeout(std::time::Duration::from_secs(2), child.wait()).await {
-                Ok(Ok(status)) => tracing::info!("MCP Server 已退出: {:?}", status),
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                child.wait(),
+            )
+            .await
+            {
+                Ok(Ok(status)) => {
+                    tracing::info!("MCP Server 已退出: {:?}", status);
+                    return;
+                }
                 Ok(Err(e)) => tracing::warn!("等待 MCP Server 退出出错: {}", e),
                 Err(_) => {
-                    tracing::warn!("MCP Server 2 秒未退出，强制终止");
-                    let _ = child.start_kill();
-                    let _ = child.wait().await;
+                    tracing::warn!("MCP Server 未自行退出，强制终止进程树");
                 }
             }
+            kill_process_tree(pid).await;
+            let _ = child.wait().await;
         }
-        // stdin 随 child 清理自动关闭
-        drop(self.stdin.lock().await.take());
     }
 
     /// 获取可用的 tool 列表（实时查 MCP Server）
@@ -240,6 +247,37 @@ impl McpClient {
         }
 
         Ok(result)
+    }
+}
+
+/// 强制终止进程树（Windows: taskkill /T, Unix: pkill -P）
+async fn kill_process_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        let status = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        match status {
+            Ok(s) if s.success() => tracing::info!("进程树已终止 (PID {})", pid),
+            Ok(s) => tracing::warn!("taskkill 退出码: {:?}", s.code()),
+            Err(e) => tracing::warn!("taskkill 执行失败: {}", e),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        // Unix: 用 kill 负 PID 杀进程组
+        let status = std::process::Command::new("kill")
+            .args(["-TERM", &format!("-{}", pid)])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if status.is_err() {
+            let _ = std::process::Command::new("pkill")
+                .args(["-P", &pid.to_string()])
+                .status();
+        }
     }
 }
 
