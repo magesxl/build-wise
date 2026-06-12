@@ -265,3 +265,65 @@
 | `docs/adr/0003-agent-architecture.md` | AI Agent 架构（Tool Calling + 无状态） |
 | `docs/adr/0004-semantic-schema.md` | 语义标注方案（YAML 配置） |
 | `docs/adr/0005-sse-api-spec.md` | SSE 接口规范（统一格式 + 流式） |
+
+---
+
+## 第二轮拷问：思考过程分离（2026-06-12）
+
+> 目标：test-tailwind.html 中模型思考过程和正式回答分开，正式回答时思考区域隐藏
+
+### Q1 · 后端协议
+**问：** 新增 SSE 事件类型还是 content 内加 subtype？
+**答：** 新增 `thinking` 事件类型，与 `content` 平级。
+
+### Q2 · 数据源头
+**问：** `deepseek-chat` 开启 thinking 参数，从 `delta.reasoning_content` 拿思考 token？
+**答：** 确认。
+
+### Q3 · 前端隐藏机制
+**问：** A) `<details>` 折叠 / B) 移除 DOM / C) 渐变淡出保留小字？
+**答：** A，可折叠回看。
+
+### Q4 · 折叠触发时机
+**问：** A) 立刻 / B) 延迟 0.5s / C) done 后？
+**答：** B，0.5 秒延迟 + 视觉过渡。
+
+### Q5 · 思考区域视觉风格
+**问：** 灰底、小字、纯文本、CSS 动画，同意吗？
+**答：** 同意。
+
+### Q6 · async-openai 版本检查
+**问：** 升级新版能支持 `reasoning_content` 吗？
+**答：** 0.41.0 也没有此字段，且无 `deny_unknown_fields` 导致静默丢弃。
+
+### Q7 · 采集方案
+**问：** A) 绕过 async-openai typed 解析用 reqwest 裸调 / B) 放弃 typed 全用 reqwest？
+**答：** A。保留 async-openai 构建消息和 tools，仅替换流式层。
+
+### Q8 · 多字段 fallback
+**问：** pi 做了 `reasoning_content` / `reasoning` / `reasoning_text` 多字段兼容，我们要不要？
+**答：** 只针对 DeepSeek 的 `reasoning_content`。
+
+### Q9 · 确认开始
+**问：** 方案有问题吗？
+**答：** 开始实现。
+
+### 决策汇总
+
+| # | 决策点 | 结果 |
+|---|---|---|
+| Q1 | SSE 协议 | 新增 `SseEvent::Thinking` 事件类型 |
+| Q2 | 数据源 | DeepSeek `reasoning_content` + `thinking: {type:"enabled"}` |
+| Q3 | 前端折叠 | `<details>` 可折叠组件 |
+| Q4 | 折叠时机 | 首 `content` 后延迟 0.5s |
+| Q5 | 思考区样式 | 灰底 #f3f4f6、12px 灰色、纯文本、CSS transition |
+| Q6 | async-openai | 不升级不改类型，改用 reqwest 裸调 |
+| Q7 | 流式采集 | reqwest + 手动 SSE/JSON 解析 |
+| Q8 | fallback | 仅 `reasoning_content` |
+
+### 输出文档
+
+| 文档 | 说明 |
+|---|---|
+| `docs/adr/0006-thinking-stream-separation.md` | 思考过程流式分离架构决策 |
+| `CONTEXT.md` | 新增「思考过程」术语 |

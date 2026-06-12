@@ -1,21 +1,17 @@
 use crate::config::Config;
 use crate::mcp::client::{McpClient, McpTool};
-use anyhow::Result;
-use async_openai::{
-    config::OpenAIConfig,
-    types::{
-        ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessageArgs,
-        ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
-        ChatCompletionRequestToolMessageArgs, ChatCompletionRequestUserMessageArgs,
-        ChatCompletionTool, ChatCompletionToolType, CreateChatCompletionRequestArgs, FinishReason,
-        FunctionObject,
-    },
-    Client,
+use anyhow::{Context, Result};
+use async_openai::types::{
+    ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessageArgs,
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
+    ChatCompletionRequestToolMessageArgs, ChatCompletionRequestUserMessageArgs,
+    ChatCompletionTool, ChatCompletionToolType, CreateChatCompletionRequestArgs, FinishReason,
+    FunctionObject,
 };
+use futures::StreamExt;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 
 // 从 api/chat 导入 SSE 事件类型（数据载体，不引入行为依赖）
@@ -60,11 +56,6 @@ impl ConversationDriver {
     /// 执行完整的 AI 对话流程。发送内容 chunk 到 tx，正常结束时不发 Done
     /// （由调用方在 `run()` 返回 Ok 后统一发送）。
     pub async fn run(self) -> Result<()> {
-        let openai_cfg = OpenAIConfig::default()
-            .with_api_key(&self.config.deepseek_api_key)
-            .with_api_base(&self.config.deepseek.base_url);
-        let client = Client::with_config(openai_cfg);
-
         let mut messages = self.build_messages()?;
 
         // 获取 MCP tools 并注册 describe_model_schema
@@ -76,6 +67,8 @@ impl ConversationDriver {
         let mut tools = mcp_tools_to_openai(&mcp_tools, &self.config);
         tools.push(describe_model_schema_tool());
         tracing::info!("已注册 {} 个 tools 给 DeepSeek", tools.len());
+
+        let http_client = reqwest::Client::new();
 
         // 对话循环
         const MAX_ROUNDS: usize = 30;
@@ -92,16 +85,9 @@ impl ConversationDriver {
             }
             tracing::info!("第 {}/{} 轮对话", round + 1, MAX_ROUNDS);
 
-            let req = CreateChatCompletionRequestArgs::default()
-                .model(&self.config.deepseek.model)
-                .messages(messages.clone())
-                .tools(tools.clone())
-                .max_tokens(self.config.deepseek.max_tokens)
-                .build()?;
-
-            let mut stream = client.chat().create_stream(req).await?;
-
-            let (tool_call_chunks, finish_reason) = self.stream_and_merge(&mut stream).await?;
+            let (tool_call_chunks, finish_reason) = self
+                .stream_and_merge(&http_client, &messages, &tools)
+                .await?;
 
             tracing::debug!(
                 "finish_reason: {:?}, tool_calls: {}",
@@ -118,7 +104,7 @@ impl ConversationDriver {
                             .await;
                         return Ok(());
                     }
-                    self.handle_tool_calls(&mut messages, &tool_call_chunks, &client)
+                    self.handle_tool_calls(&mut messages, &tool_call_chunks)
                         .await?;
                     continue; // 继续循环，让 AI 看到 tool 结果
                 }
@@ -152,7 +138,7 @@ impl ConversationDriver {
                 .into(),
         );
 
-        // 模型 ID 上下文（可��）
+        // 模型 ID 上下文（可选）
         if let Some(ref ids) = self.model_ids {
             if !ids.is_empty() {
                 messages.push(
@@ -208,20 +194,51 @@ impl ConversationDriver {
     }
 }
 
-// ── 流式处理 ──────────────────────────────────────────────────
+// ── 流式处理（reqwest + 手动 SSE 解析）─────────────────────
 
 impl ConversationDriver {
-    /// 消费 DeepSeek 流式响应，推送文本 chunk 到 tx，累积 tool call delta。
-    /// 返回合并后的 tool call 列表和 finish_reason。
+    /// 通过 reqwest 发送流式请求到 DeepSeek，手动解析 SSE/JSON，
+    /// 提取 reasoning_content（→ Thinking）、content（→ Content）、
+    /// tool_calls（→ 累积），返回合并后的 tool call 列表和 finish_reason。
     async fn stream_and_merge(
         &self,
-        stream: &mut (impl StreamExt<
-            Item = Result<
-                async_openai::types::CreateChatCompletionStreamResponse,
-                async_openai::error::OpenAIError,
-            >,
-        > + Unpin),
+        http_client: &reqwest::Client,
+        messages: &[ChatCompletionRequestMessage],
+        tools: &[ChatCompletionTool],
     ) -> Result<(Vec<ChatCompletionMessageToolCall>, Option<FinishReason>)> {
+        // 用 async-openai 构建请求体，再手动注入 thinking 和 stream 字段
+        let req = CreateChatCompletionRequestArgs::default()
+            .model(&self.config.deepseek.model)
+            .messages(messages.to_vec())
+            .tools(tools.to_vec())
+            .max_tokens(self.config.deepseek.max_tokens)
+            .build()?;
+
+        let mut body = serde_json::to_value(&req)?;
+        body["stream"] = serde_json::json!(true);
+        body["thinking"] = serde_json::json!({"type": "enabled"});
+
+        let url = format!("{}/chat/completions", self.config.deepseek.base_url);
+
+        let response = http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.config.deepseek_api_key))
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream")
+            .json(&body)
+            .send()
+            .await
+            .context("发送 DeepSeek 请求失败")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            anyhow::bail!("DeepSeek 返回错误 {}: {}", status, text);
+        }
+
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+
         let mut tool_call_chunks: Vec<ChatCompletionMessageToolCall> = Vec::new();
         let mut finish_reason: Option<FinishReason> = None;
 
@@ -231,24 +248,49 @@ impl ConversationDriver {
                 return Ok((tool_call_chunks, finish_reason));
             }
 
-            let chunk = match chunk_result {
-                Ok(c) => c,
-                Err(e) => {
-                    let _ = self
-                        .tx
-                        .send(SseEvent::Error(format!("AI 服务错误: {}", e)))
-                        .await;
+            let bytes = chunk_result.context("读取流式响应失败")?;
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+            // 按行解析 SSE
+            while let Some(line_end) = buffer.find('\n') {
+                let line = buffer[..line_end].trim().to_string();
+                buffer = buffer[line_end + 1..].to_string();
+
+                if line.is_empty() {
+                    continue;
+                }
+
+                // SSE 结束标记
+                if line == "data: [DONE]" {
                     return Ok((tool_call_chunks, finish_reason));
                 }
-            };
 
-            for choice in &chunk.choices {
-                // 文本 delta → 直接推 SSE
-                if let Some(ref content) = choice.delta.content {
-                    if !content.is_empty()
+                // 提取 data: {...}
+                let json_str = if let Some(rest) = line.strip_prefix("data: ") {
+                    rest
+                } else {
+                    continue;
+                };
+
+                let chunk: Value = match serde_json::from_str(json_str) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                // 提取第一个 choice
+                let choice = match chunk["choices"].as_array().and_then(|a| a.first()) {
+                    Some(c) => c,
+                    None => continue,
+                };
+
+                let delta = &choice["delta"];
+
+                // ── reasoning_content → Thinking ──
+                if let Some(reasoning) = delta["reasoning_content"].as_str() {
+                    if !reasoning.is_empty()
                         && self
                             .tx
-                            .send(SseEvent::Content(content.clone()))
+                            .send(SseEvent::Thinking(reasoning.to_string()))
                             .await
                             .is_err()
                     {
@@ -256,10 +298,23 @@ impl ConversationDriver {
                     }
                 }
 
-                // Tool call delta → 按 index 合并
-                if let Some(ref tc_deltas) = choice.delta.tool_calls {
+                // ── content → Content ──
+                if let Some(content) = delta["content"].as_str() {
+                    if !content.is_empty()
+                        && self
+                            .tx
+                            .send(SseEvent::Content(content.to_string()))
+                            .await
+                            .is_err()
+                    {
+                        return Ok((tool_call_chunks, finish_reason)); // 客户端断开
+                    }
+                }
+
+                // ── tool_calls delta → 按 index 合并 ──
+                if let Some(tc_deltas) = delta["tool_calls"].as_array() {
                     for tc_delta in tc_deltas {
-                        let idx = tc_delta.index as usize;
+                        let idx = tc_delta["index"].as_u64().unwrap_or(0) as usize;
                         while tool_call_chunks.len() <= idx {
                             tool_call_chunks.push(ChatCompletionMessageToolCall {
                                 id: String::new(),
@@ -271,22 +326,29 @@ impl ConversationDriver {
                             });
                         }
                         let target = &mut tool_call_chunks[idx];
-                        if let Some(ref id) = tc_delta.id {
-                            target.id = id.clone();
+                        if let Some(id) = tc_delta["id"].as_str() {
+                            target.id = id.to_string();
                         }
-                        if let Some(ref func) = tc_delta.function {
-                            if let Some(ref name) = func.name {
-                                target.function.name = name.clone();
+                        if let Some(func) = tc_delta["function"].as_object() {
+                            if let Some(name) = func.get("name").and_then(|n| n.as_str()) {
+                                target.function.name = name.to_string();
                             }
-                            if let Some(ref args) = func.arguments {
+                            if let Some(args) = func.get("arguments").and_then(|a| a.as_str()) {
                                 target.function.arguments.push_str(args);
                             }
                         }
                     }
                 }
 
-                if choice.finish_reason.is_some() {
-                    finish_reason = choice.finish_reason;
+                // ── finish_reason ──
+                if let Some(fr_str) = choice["finish_reason"].as_str() {
+                    finish_reason = match fr_str {
+                        "stop" => Some(FinishReason::Stop),
+                        "length" => Some(FinishReason::Length),
+                        "tool_calls" => Some(FinishReason::ToolCalls),
+                        "content_filter" => Some(FinishReason::ContentFilter),
+                        _ => None,
+                    };
                 }
             }
         }
@@ -303,7 +365,6 @@ impl ConversationDriver {
         &self,
         messages: &mut Vec<ChatCompletionRequestMessage>,
         tool_call_chunks: &[ChatCompletionMessageToolCall],
-        _client: &Client<OpenAIConfig>,
     ) -> Result<()> {
         tracing::info!("AI 请求 {} 个 tool calls", tool_call_chunks.len());
 
