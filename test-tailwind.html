@@ -5,7 +5,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://unpkg.com/tailwindcss@1.9.6/dist/tailwind.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
     <style>
       @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
       .thinking-box { background: #f3f4f6; border-left: 3px solid #a5b4fc; border-radius: 6px; margin-bottom: 8px; overflow: hidden; transition: max-height 0.5s ease, margin-bottom 0.5s ease; }
@@ -19,6 +19,26 @@
       .history-item { transition: background 0.15s; }
       .history-item:hover { background: #f3f4f6; }
       .history-item.active { background: #eef2ff; border-left: 3px solid #6366f1; }
+      /* ── Markdown 分块渲染样式 ── */
+      .msg-content { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .msg-content code, .msg-content pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; }
+      .msg-content pre { background: #f3f4f6; border-radius: 4px; padding: 8px 12px; overflow-x: auto; margin: 8px 0; }
+      .msg-content code { background: rgba(128,128,128,0.12); padding: 1px 4px; border-radius: 3px; color: #374151; }
+      .msg-content pre code { background: none; padding: 0; border-radius: 0; color: inherit; }
+      .msg-content table { border-collapse: collapse; width: 100%; margin: 8px 0; overflow-x: auto; display: block; }
+      .msg-content th, .msg-content td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; font-size: 0.93em; }
+      .msg-content th { background: rgba(128,128,128,0.08); font-weight: 600; }
+      .msg-content tr:nth-child(even) td { background: rgba(128,128,128,0.02); }
+      .msg-content blockquote { border-left: 3px solid #d1d5db; padding-left: 12px; margin: 8px 0; color: #6b7280; }
+      .msg-content hr { border: none; border-top: 1px solid #e5e7eb; margin: 12px 0; }
+      .msg-content ul, .msg-content ol { padding-left: 1.5em; margin: 4px 0; }
+      .msg-content li { margin: 2px 0; }
+      .msg-content h2, .msg-content h3, .msg-content h4 { font-size: 1em; font-weight: 600; margin: 10px 0 4px 0; }
+      .msg-content p { margin: 4px 0; }
+      .msg-content .md-block { margin-bottom: 6px; }
+      .msg-content .md-pending { min-height: 1em; }
+      @keyframes cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+      .msg-content .md-cursor { display: inline-block; width: 2px; height: 1em; background: #6366f1; margin-left: 1px; vertical-align: text-bottom; animation: cursor-blink 0.8s infinite; }
     </style>
 </head>
 <body class="h-screen overflow-hidden flex items-center justify-center" style="background: #edf2f7;">
@@ -198,6 +218,28 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── 分块渲染工具 ──
+function isTableRow(line) { const t = line.trim(); if (!t.includes('|')) return false; return t.split('|').filter(p => p.trim()).length >= 2; }
+function isListItem(line) { return /^(\s*)[-*+](\s+)/.test(line) || /^(\s*)\d+[.)]\s/.test(line); }
+function splitBlocks(text) {
+  if (!text) return [];
+  const lines = text.split('\n'); const blocks = []; let start = 0; let state = 0; /* 0=PARA 1=FENCE 2=TABLE 3=LIST */
+  const flush = (end) => { const b = lines.slice(start, end).join('\n').trim(); if (b) blocks.push(b); start = end; };
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i], t = ln.trim();
+    if (state === 1) { if (i > start && /^```\s*$/.test(t)) { flush(i + 1); state = 0; start = i + 1; } continue; }
+    if (state === 2) { if (t === '' || !isTableRow(ln)) { flush(i); state = 0; if (t !== '') i--; else start = i + 1; } continue; }
+    if (state === 3) { if (t === '') { let j = i + 1; while (j < lines.length && lines[j].trim() === '') j++; if (j >= lines.length || !isListItem(lines[j])) { flush(i); state = 0; start = i + 1; } } else if (!isListItem(ln)) { flush(i); state = 0; i--; start = i + 1; } continue; }
+    if (/^```/.test(t)) { flush(i); state = 1; start = i; }
+    else if (isTableRow(ln) && (i === 0 || lines[i - 1].trim() === '')) { flush(i); state = 2; start = i; }
+    else if (isListItem(ln) && (i === 0 || lines[i - 1].trim() === '')) { flush(i); state = 3; start = i; }
+    else if (t === '') { flush(i); start = i + 1; }
+  }
+  if (start < lines.length) { let r = lines.slice(start).join('\n').replace(/\n+$/, ''); if (r) blocks.push(r); }
+  return blocks;
+}
+function validateHtml(html) { const po = (html.match(/<pre[\s>]/g) || []).length, pc = (html.match(/<\/pre>/g) || []).length, co = (html.match(/<code[\s>]/g) || []).length, cc = (html.match(/<\/code>/g) || []).length; return po === pc && co === cc; }
+function renderBlock(text, validate) { let h; try { h = marked.parse(text); } catch (_) { return escHtml(text); } if (validate && !validateHtml(h)) return escHtml(text); return h; }
 function scroll() { scrollContainer.scrollTop = scrollContainer.scrollHeight; }
 
 function setButtonStop() {
@@ -243,7 +285,7 @@ async function send(followupText) {
     <div class="flex items-center justify-center h-10 w-10 rounded-full bg-indigo-500 flex-shrink-0 text-white text-xs font-bold">AI</div>
     <div class="ml-3 flex-1 min-w-0 msg-col">
       <div class="thinking-box" style="display:none"><details open><summary>思考过程</summary><div class="thinking-content"></div></details></div>
-      <div class="relative text-sm bg-white py-2 px-4 shadow rounded-xl msg-content"></div>
+      <div class="relative text-sm bg-white py-2 px-4 shadow rounded-xl msg-content"><div class="md-settled"></div><div class="md-pending"></div></div>
     </div>
   </div>`;
   chatMessages.appendChild(aiWrap);
@@ -255,6 +297,9 @@ async function send(followupText) {
   let fullText = '';
   let thinkingText = '';
   let thinkingSeen = false;
+  let blockCursor = 0;
+  const settledEl = aiDiv.querySelector('.md-settled');
+  const pendingEl = aiDiv.querySelector('.md-pending');
 
   try {
     abortController = new AbortController();
@@ -306,11 +351,14 @@ async function send(followupText) {
         } else if (data.type === 'content') {
           if (aiDiv.style.display === 'none') aiDiv.style.display = '';
           fullText += data.text;
-          aiDiv.innerHTML = marked.parse(fullText) +
-            '<span class="inline-block w-1.5 h-3.5 bg-indigo-500 align-middle ml-0.5" style="animation:blink .8s infinite"></span>';
+          try {
+            const html = marked.parse(fullText);
+            aiDiv.innerHTML = '<div class="md-settled">' + html + '</div><div class="md-pending"><span class="md-cursor"></span></div>';
+          } catch (e) { console.error('content error:', e); }
           scroll();
         } else if (data.type === 'done') {
-          aiDiv.innerHTML = marked.parse(fullText);
+          const html = marked.parse(fullText);
+          aiDiv.innerHTML = '<div class="md-settled">' + html + '</div><div class="md-pending"></div>';
           if (FOLLOWUPS.length) {
             const fu = document.createElement('div');
             fu.className = 'mt-2 flex gap-1.5 flex-wrap';
