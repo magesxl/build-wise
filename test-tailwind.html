@@ -8,13 +8,14 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
       @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
-      .thinking-box { background: #f3f4f6; border-left: 3px solid #a5b4fc; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+      .thinking-box { background: #f3f4f6; border-left: 3px solid #a5b4fc; border-radius: 6px; margin-bottom: 8px; overflow: hidden; transition: max-height 0.5s ease, margin-bottom 0.5s ease; }
       .thinking-box summary { padding: 6px 12px; font-size: 12px; color: #6366f1; cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: 4px; }
       .thinking-box summary::-webkit-details-marker { display: none; }
       .thinking-box summary::before { content: '💭'; font-size: 13px; }
       .thinking-content { padding: 6px 12px 10px 12px; font-size: 12px; color: #6b7280; line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; transition: max-height 0.5s ease, padding 0.5s ease, opacity 0.5s ease; opacity: 1; }
       .thinking-box[open] .thinking-content { max-height: 300px; opacity: 1; }
       .thinking-collapsing { opacity: 0 !important; max-height: 0 !important; padding-top: 0 !important; padding-bottom: 0 !important; overflow: hidden !important; transition: max-height 0.5s ease, padding 0.5s ease, opacity 0.5s ease !important; }
+      .thinking-box-collapsing { max-height: 0 !important; margin-bottom: 0 !important; }
     </style>
 </head>
 <body class="h-screen overflow-hidden flex items-center justify-center" style="background: #edf2f7;">
@@ -355,26 +356,35 @@ async function send(followupText) {
           thinkingEl.textContent = thinkingText;
           thinkingEl.scrollTop = thinkingEl.scrollHeight;
           scroll();
+        } else if (data.type === 'thinking_done') {
+          // 思考结束，折叠思考区
+          if (thinkingEl) {
+            const box = thinkingEl.closest('.thinking-box');
+            const details = thinkingEl.closest('details');
+            if (box && details && details.open) {
+              box.style.maxHeight = box.scrollHeight + 'px';
+              thinkingEl.classList.add('thinking-collapsing');
+              box.offsetHeight; // 强制回流
+              box.classList.add('thinking-box-collapsing');
+              setTimeout(() => {
+                details.open = false;
+                thinkingEl.classList.remove('thinking-collapsing');
+                box.classList.remove('thinking-box-collapsing');
+                box.style.maxHeight = '';
+              }, 500);
+            }
+          }
         } else if (data.type === 'content') {
+          // 回答开始流式吐字
+          if (aiDiv.style.display === 'none') {
+            aiDiv.style.display = '';
+          }
           fullText += data.text;
           aiDiv.innerHTML = marked.parse(fullText) + '<span class="inline-block w-1.5 h-3.5 bg-indigo-500 align-middle ml-0.5" style="animation:blink .8s infinite"></span>';
           scroll();
         } else if (data.type === 'done') {
-          // 显示回答气泡 + 折叠思考区
-          aiDiv.style.display = '';
+          // 去掉光标
           aiDiv.innerHTML = marked.parse(fullText);
-          if (thinkingEl) {
-            const details = thinkingEl.closest('details');
-            if (details && details.open) {
-              thinkingEl.classList.add('thinking-collapsing');
-              setTimeout(() => {
-                details.open = false;
-                thinkingEl.classList.remove('thinking-collapsing');
-                thinkingEl.style.maxHeight = '';
-                thinkingEl.style.opacity = '';
-              }, 500);
-            }
-          }
           if (FOLLOWUPS.length) {
             const fu = document.createElement('div');
             fu.className = 'mt-2 flex gap-1.5 flex-wrap';

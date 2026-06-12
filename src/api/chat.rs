@@ -17,6 +17,7 @@ use tokio_stream::StreamExt;
 #[derive(Debug, Clone)]
 pub enum SseEvent {
     Thinking(String),
+    ThinkingDone,
     Content(String),
     Done,
     Error(String),
@@ -27,6 +28,9 @@ impl SseEvent {
         match self {
             SseEvent::Thinking(text) => {
                 serde_json::json!({"type":"thinking","text":text}).to_string()
+            }
+            SseEvent::ThinkingDone => {
+                serde_json::json!({"type":"thinking_done"}).to_string()
             }
             SseEvent::Content(text) => {
                 serde_json::json!({"type":"content","text":text}).to_string()

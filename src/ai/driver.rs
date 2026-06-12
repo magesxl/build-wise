@@ -241,6 +241,7 @@ impl ConversationDriver {
 
         let mut tool_call_chunks: Vec<ChatCompletionMessageToolCall> = Vec::new();
         let mut finish_reason: Option<FinishReason> = None;
+        let mut thinking_seen = false;
 
         while let Some(chunk_result) = stream.next().await {
             if self.cancel.is_cancelled() {
@@ -262,6 +263,9 @@ impl ConversationDriver {
 
                 // SSE 结束标记
                 if line == "data: [DONE]" {
+                    if thinking_seen && matches!(finish_reason, Some(FinishReason::Stop)) {
+                        let _ = self.tx.send(SseEvent::ThinkingDone).await;
+                    }
                     return Ok((tool_call_chunks, finish_reason));
                 }
 
@@ -287,14 +291,16 @@ impl ConversationDriver {
 
                 // ── reasoning_content → Thinking ──
                 if let Some(reasoning) = delta["reasoning_content"].as_str() {
-                    if !reasoning.is_empty()
-                        && self
+                    if !reasoning.is_empty() {
+                        thinking_seen = true;
+                        if self
                             .tx
                             .send(SseEvent::Thinking(reasoning.to_string()))
                             .await
                             .is_err()
-                    {
-                        return Ok((tool_call_chunks, finish_reason)); // 客户端断开
+                        {
+                            return Ok((tool_call_chunks, finish_reason)); // 客户端断开
+                        }
                     }
                 }
 
@@ -351,6 +357,11 @@ impl ConversationDriver {
                     };
                 }
             }
+        }
+
+        // 最终轮且出现过思考 → 折叠思考区
+        if thinking_seen && matches!(finish_reason, Some(FinishReason::Stop)) {
+            let _ = self.tx.send(SseEvent::ThinkingDone).await;
         }
 
         Ok((tool_call_chunks, finish_reason))
