@@ -32,7 +32,7 @@ use crate::api::chat::SseEvent;
 pub struct ConversationDriver {
     config: Arc<Config>,
     mcp_client: Arc<McpClient>,
-    model_ids: Vec<String>,
+    model_ids: Option<Vec<String>>,
     history: Vec<(String, String)>, // (role, content)
     tx: mpsc::Sender<SseEvent>,
     cancel: CancellationToken,
@@ -42,7 +42,7 @@ impl ConversationDriver {
     pub fn new(
         config: Arc<Config>,
         mcp_client: Arc<McpClient>,
-        model_ids: Vec<String>,
+        model_ids: Option<Vec<String>>,
         history: Vec<(String, String)>,
         tx: mpsc::Sender<SseEvent>,
         cancel: CancellationToken,
@@ -152,16 +152,20 @@ impl ConversationDriver {
                 .into(),
         );
 
-        // 模型 ID 上下文
-        messages.push(
-            ChatCompletionRequestSystemMessageArgs::default()
-                .content(format!(
-                    "用户指定的模型 ID: [{}]。请针对这些模型进行分析。",
-                    self.model_ids.join(", ")
-                ))
-                .build()?
-                .into(),
-        );
+        // 模型 ID 上下文（可��）
+        if let Some(ref ids) = self.model_ids {
+            if !ids.is_empty() {
+                messages.push(
+                    ChatCompletionRequestSystemMessageArgs::default()
+                        .content(format!(
+                            "用户指定的模型 ID: [{}]。请针对这些模型进行分析。",
+                            ids.join(", ")
+                        ))
+                        .build()?
+                        .into(),
+                );
+            }
+        }
 
         // 对话历史 + 当前问题
         for (role, content) in &self.history {
@@ -188,12 +192,13 @@ impl ConversationDriver {
 
         // 如果没有用户消息，补一条默认
         if self.history.is_empty() || self.history.last().map(|(r, _)| r.as_str()) != Some("user") {
+            let fallback = match self.model_ids {
+                Some(ref ids) if !ids.is_empty() => format!("请分析模型 {} 的建造信息。", ids.join(", ")),
+                _ => "请分析建造信息。".to_string(),
+            };
             messages.push(
                 ChatCompletionRequestUserMessageArgs::default()
-                    .content(format!(
-                        "请分析模型 {} 的建造信息。",
-                        self.model_ids.join(", ")
-                    ))
+                    .content(fallback)
                     .build()?
                     .into(),
             );

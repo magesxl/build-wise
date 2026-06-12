@@ -35,7 +35,8 @@ impl SseEvent {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ChatRequest {
-    pub model_ids: Vec<String>,
+    #[serde(default)]
+    pub model_ids: Option<Vec<String>>,
     #[serde(default)]
     pub messages: Vec<ChatMessage>,
 }

@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://unpkg.com/tailwindcss@1.9.6/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
+</head>
+<body class="h-screen overflow-hidden flex items-center justify-center" style="background: #edf2f7;">
+    <div class="flex h-screen w-full antialiased text-gray-800">
+    <div class="flex flex-row h-full w-full overflow-x-hidden">
+      <div class="flex flex-col py-8 pl-6 pr-2 w-64 bg-white flex-shrink-0">
+        <div class="flex flex-row items-center justify-center h-12 w-full">
+          <div
+            class="flex items-center justify-center rounded-2xl text-indigo-700 bg-indigo-100 h-10 w-10"
+          >
+            <svg
+              class="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+              ></path>
+            </svg>
+          </div>
+          <div class="ml-2 font-bold text-2xl">QuickChat</div>
+        </div>
+        <div
+          class="flex flex-col items-center bg-indigo-100 border border-gray-200 mt-4 w-full py-6 px-4 rounded-lg"
+        >
+          <div class="h-20 w-20 rounded-full border overflow-hidden">
+            <img
+              src="https://avatars3.githubusercontent.com/u/2763884?s=128"
+              alt="Avatar"
+              class="h-full w-full"
+            />
+          </div>
+          <div class="text-sm font-semibold mt-2">Aminos Co.</div>
+          <div class="text-xs text-gray-500">Lead UI/UX Designer</div>
+          <div class="flex flex-row items-center mt-3">
+            <div
+              class="flex flex-col justify-center h-4 w-8 bg-indigo-500 rounded-full"
+            >
+              <div class="h-3 w-3 bg-white rounded-full self-end mr-1"></div>
+            </div>
+            <div class="leading-none ml-1 text-xs">Active</div>
+          </div>
+        </div>
+        <div class="flex flex-col mt-8">
+          <div class="flex flex-row items-center justify-between text-xs">
+            <span class="font-bold">Active Conversations</span>
+            <span
+              class="flex items-center justify-center bg-gray-300 h-4 w-4 rounded-full"
+              >4</span
+            >
+          </div>
+          <div class="flex flex-col space-y-1 mt-4 -mx-2 h-48 overflow-y-auto">
+            <button
+              class="flex flex-row items-center hover:bg-gray-100 rounded-xl p-2"
+            >
+              <div
+                class="flex items-center justify-center h-8 w-8 bg-indigo-200 rounded-full"
+              >
+                H
+              </div>
+              <div class="ml-2 text-sm font-semibold">Henry Boyd</div>
+            </button>
+            <button
+              class="flex flex-row items-center hover:bg-gray-100 rounded-xl p-2"
+            >
+              <div
+                class="flex items-center justify-center h-8 w-8 bg-gray-200 rounded-full"
+              >
+                M
+              </div>
+              <div class="ml-2 text-sm font-semibold">Marta Curtis</div>
+              <div
+                class="flex items-center justify-center ml-auto text-xs text-white bg-red-500 h-4 w-4 rounded leading-none"
+              >
+                2
+              </div>
+            </button>
+            <button
+              class="flex flex-row items-center hover:bg-gray-100 rounded-xl p-2"
+            >
+              <div
+                class="flex items-center justify-center h-8 w-8 bg-orange-200 rounded-full"
+              >
+                P
+              </div>
+              <div class="ml-2 text-sm font-semibold">Philip Tucker</div>
+            </button>
+            <button
+              class="flex flex-row items-center hover:bg-gray-100 rounded-xl p-2"
+            >
+              <div
+                class="flex items-center justify-center h-8 w-8 bg-pink-200 rounded-full"
+              >
+                C
+              </div>
+              <div class="ml-2 text-sm font-semibold">Christine Reid</div>
+            </button>
+            <button
+              class="flex flex-row items-center hover:bg-gray-100 rounded-xl p-2"
+            >
+              <div
+                class="flex items-center justify-center h-8 w-8 bg-purple-200 rounded-full"
+              >
+                J
+              </div>
+              <div class="ml-2 text-sm font-semibold">Jerry Guzman</div>
+            </button>
+          </div>
+          <div class="flex flex-row items-center justify-between text-xs mt-6">
+            <span class="font-bold">Archivied</span>
+            <span
+              class="flex items-center justify-center bg-gray-300 h-4 w-4 rounded-full"
+              >7</span
+            >
+          </div>
+          <div class="flex flex-col space-y-1 mt-4 -mx-2">
+            <button
+              class="flex flex-row items-center hover:bg-gray-100 rounded-xl p-2"
+            >
+              <div
+                class="flex items-center justify-center h-8 w-8 bg-indigo-200 rounded-full"
+              >
+                H
+              </div>
+              <div class="ml-2 text-sm font-semibold">Henry Boyd</div>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-col flex-auto h-full p-6">
+        <div
+          class="flex flex-col flex-auto flex-shrink-0 rounded-2xl bg-gray-100 h-full p-4"
+        >
+          <div class="flex flex-col flex-1 overflow-x-auto mb-4">
+            <div class="flex flex-col flex-1">
+              <div id="chat-messages" class="grid grid-cols-12 gap-y-2"></div>
+            </div>
+          </div>
+          <div
+            class="flex flex-row items-center h-16 rounded-xl bg-white w-full px-4"
+          >
+            <div>
+              <button
+                class="flex items-center justify-center text-gray-400 hover:text-gray-600"
+              >
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                  ></path>
+                </svg>
+              </button>
+            </div>
+            <div class="flex-grow ml-4">
+              <div class="relative w-full">
+                <input
+                  id="msg-input"
+                  type="text"
+                  class="flex w-full border rounded-xl focus:outline-none focus:border-indigo-300 pl-4 h-10"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"
+                />
+                <button
+                  class="absolute flex items-center justify-center h-full w-12 right-0 top-0 text-gray-400 hover:text-gray-600"
+                >
+                  <svg
+                    class="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    ></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="ml-4">
+              <button
+                id="send-btn"
+                class="flex items-center justify-center bg-indigo-500 hover:bg-indigo-600 rounded-xl text-white px-4 py-1 flex-shrink-0"
+                onclick="send()"
+              >
+                <span id="send-btn-text">Send</span>
+                <span class="ml-2">
+                  <svg
+                    class="w-4 h-4 transform rotate-45 -mt-px"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                    ></path>
+                  </svg>
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+<script>
+const API = 'http://localhost:3000/api/chat';
+const FOLLOWUPS = ['进度是否有异常？', '成本与预算对比如何？', '模板周转情况？', '与上一阶段对比变化如何？'];
+
+marked.setOptions({ breaks: true, gfm: true });
+
+const chatMessages = document.getElementById('chat-messages');
+const input = document.getElementById('msg-input');
+const btn = document.getElementById('send-btn');
+const btnText = document.getElementById('send-btn-text');
+
+let messages = [];
+let streaming = false;
+let abortController = null;
+
+function addMsgBubble(role) {
+  const wrap = document.createElement('div');
+  wrap.className = role === 'user'
+    ? 'col-start-6 col-end-13 p-3 rounded-lg'
+    : 'col-start-1 col-end-8 p-3 rounded-lg';
+
+  const isUser = role === 'user';
+  wrap.innerHTML = `
+    <div class="flex items-center justify-start ${isUser ? 'flex-row-reverse' : 'flex-row'}">
+      <div class="flex items-center justify-center h-10 w-10 rounded-full bg-indigo-500 flex-shrink-0 text-white text-xs font-bold">
+        ${isUser ? 'U' : 'AI'}
+      </div>
+      <div class="relative ${isUser ? 'mr-3' : 'ml-3'} text-sm ${isUser ? 'bg-indigo-100' : 'bg-white'} py-2 px-4 shadow rounded-xl msg-content"></div>
+    </div>`;
+  chatMessages.appendChild(wrap);
+  return wrap.querySelector('.msg-content');
+}
+
+function scroll() {
+  const box = chatMessages.closest('.overflow-x-auto');
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+function setButtonStop() {
+  btnText.textContent = '⏹ Stop';
+  btn.className = 'flex items-center justify-center bg-red-500 hover:bg-red-600 rounded-xl text-white px-4 py-1 flex-shrink-0';
+  btn.onclick = stop;
+}
+
+function setButtonSend() {
+  btnText.textContent = 'Send';
+  btn.className = 'flex items-center justify-center bg-indigo-500 hover:bg-indigo-600 rounded-xl text-white px-4 py-1 flex-shrink-0';
+  btn.onclick = () => send();
+}
+
+function stop() {
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+  fetch(API.replace('/api/chat', '/api/cancel'), { method: 'POST' }).catch(() => {});
+}
+
+async function send(followupText) {
+  if (streaming) return;
+  const text = followupText || input.value.trim();
+  if (!text) return;
+
+  streaming = true; setButtonStop();
+
+  const userDiv = addMsgBubble('user');
+  userDiv.innerHTML = '<div>' + text.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+  scroll();
+  messages.push({ role: 'user', content: text });
+  if (!followupText) input.value = '';
+
+  const aiDiv = addMsgBubble('assistant');
+  let fullText = '';
+
+  try {
+    abortController = new AbortController();
+    const resp = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_ids: null, messages }),
+      signal: abortController.signal
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = JSON.parse(line.slice(6));
+        if (data.type === 'content') {
+          fullText += data.text;
+          aiDiv.innerHTML = marked.parse(fullText) + '<span class="inline-block w-1.5 h-3.5 bg-indigo-500 align-middle ml-0.5" style="animation:blink .8s infinite"></span>';
+          scroll();
+        } else if (data.type === 'done') {
+          aiDiv.innerHTML = marked.parse(fullText);
+          if (FOLLOWUPS.length) {
+            const fu = document.createElement('div');
+            fu.className = 'mt-2 flex gap-1.5 flex-wrap';
+            fu.innerHTML = FOLLOWUPS.map(f =>
+              `<button class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-600 px-3 py-1 rounded-full text-xs" onclick="send('${f.replace(/'/g, "\\'")}')">${f}</button>`
+            ).join('');
+            aiDiv.parentElement.parentElement.appendChild(fu);
+          }
+          messages.push({ role: 'assistant', content: fullText });
+        } else if (data.type === 'error') {
+          aiDiv.innerHTML = '<div class="text-red-600">' + data.text + '</div>';
+        }
+      }
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      aiDiv.innerHTML = marked.parse(fullText);
+    } else {
+      aiDiv.innerHTML = '<div class="text-red-600">请求失败: ' + e.message + '（确认服务已启动？）</div>';
+    }
+  }
+  streaming = false; abortController = null; setButtonSend(); input.focus();
+}
+</script>
+</body>
+</html>
