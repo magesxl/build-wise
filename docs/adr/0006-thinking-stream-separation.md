@@ -95,3 +95,83 @@ error         → {"type":"error","text":"..."}
 - 前端分三路处理 `thinking`/`thinking_done`/`content`，折叠时机由后端精确控制
 - 打字机效果恢复，思考区折叠与回答流式吐字兼得
 - 后续若 `async-openai` 加入 `reasoning_content` 支持，可考虑回迁 typed streaming
+
+---
+
+## 第三轮迭代：前端渲染对齐 pi agent（2026-06-12）
+
+### 背景
+
+第二轮迭代后，思考/回答分离在后端和基础前端已跑通。但存在两个问题：
+
+1. **思考区 DOM 位置错误**：思考区通过 `insertBefore` 动态插入在 AI 消息的 flex row 外部，导致出现在回答气泡**下方**而非上方
+2. **前端测试页混乱**：存在 `test.html`（简单版）和 `test-tailwind.html`（Tailwind 版）两个版本，后者从未处理 `thinking`/`thinking_done` 事件
+
+统一以 `test-tailwind.html` 为唯一开发测试页，`test.html` 作为简化备选。
+
+### 参考对象：pi agent 渲染模式
+
+分析 pi coding agent（`@earendil-works/pi-agent-core`）的流式渲染架构：
+
+| 层级 | 职责 |
+|---|---|
+| Provider（`openai-completions.js`） | 忠实地将 thinking / text / toolCall 作为独立 content block 发射，不做任何缓冲或抑制 |
+| Agent Loop（`agent-loop.js`） | 透明转发 `message_update` 事件，包含 `assistantMessageEvent` 原样内容 |
+| TUI 渲染层 | 按内容块类型分别渲染：thinking 区（灰底小字可折叠）、text 区（Markdown 气泡）、tool 区（状态指示器） |
+
+核心原则：**所有内容块平等对待、独立渲染、不做抑制**。
+
+### 对比：OpenAI Codex Responses API
+
+Codex 使用的是新版 Responses API（非 Chat Completions），其流式事件**按阶段天然隔离**：
+
+```
+response.output_item.added  →  item.type="reasoning"     ← 思考阶段
+  response.reasoning_text.delta  →  "让我分析..."
+response.output_item.done
+
+response.output_item.added  →  item.type="function_call"  ← 工具调用阶段
+  response.function_call_arguments.delta
+response.output_item.done
+
+response.output_item.added  →  item.type="message"        ← 正式回答阶段
+  response.output_text.delta  →  "根据数据..."
+response.output_item.done
+```
+
+API 层面保证 reasoning → function_call → message 三阶段不重叠。DeepSeek 的 Chat Completions API 使用扁平 delta 结构（`reasoning_content` 与 `content` 同级并列字段），无此能力——这解释了为何 Codex 不需要"中间 content 抑制"而我们面临此问题。
+
+### 决定
+
+#### DOM 结构：列容器布局
+
+```
+flex-row
+  ├── 头像 AI
+  └── msg-col（ml-3 flex-1 列容器）
+        ├── thinking-box（💭 思考过程）  ← 上，display:none 初始
+        └── answer-bubble（正式回答）    ← 下，display:none 初始
+```
+
+思考和回答在同一个列容器内，自然上下排列，不再需要 `insertBefore` hack。
+
+#### 多轮 tool-calling 中间 content 处理
+
+DeepSeek 在中间轮（`finish_reason == ToolCalls`）除了 `reasoning_content`，也会输出 `content`——如"我来查一下数据库"之类的过渡文本。
+
+当前策略：**后端不做抑制**（与 pi agent 一致——忠实地流式输出所有内容）。中间轮 content 会短暂出现在回答气泡中，下一轮工具调用开始后前端会重建 AI 消息（新 `send()` 调用），自然覆盖。若后续需要纯净化体验，可改为后端缓冲策略（中间轮不发送 Content，最终轮 flush）。
+
+#### 侧边栏：历史对话
+
+侧边栏从"快捷提问"改为"历史对话列表"，支持新建/切换/删除。对话存储在浏览器内存中（无后端持久化），首次提问自动创建对话，标题取用户问题前 20 字。
+
+#### 快捷提问位置
+
+4 个快捷提问按钮（工程量 / 进度节点 / 成本分析 / 模板脚手架）移至输入框下方，pill 形状，点击直接发送。
+
+### 已知局限
+
+1. **中间轮 content 闪现**：多轮 tool-calling 中，"我来查一下数据库"等过渡文本会在回答气泡短暂可见。消除需后端改造（中间轮抑制 content）
+2. **对话无持久化**：历史对话仅存于浏览器内存，刷新丢失
+3. **无 tool call 状态指示**：当前 SSE 协议无 tool call 事件，前端无法展示"正在查询数据..."等中间状态
+4. **test.html 未同步**：`test.html` 作为简化备选保留，不含思考区分离功能
