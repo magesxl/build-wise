@@ -109,6 +109,8 @@ const FOLLOWUPS = ['进度是否有异常？', '成本与预算对比如何？',
 
 marked.setOptions({ breaks: true, gfm: true });
 
+const smdP = import("https://cdn.jsdelivr.net/npm/streaming-markdown@0.2.15/smd.min.js");
+
 const chatMessages = document.getElementById('chat-messages');
 const scrollContainer = document.getElementById('scroll-container');
 const historyList = document.getElementById('history-list');
@@ -218,28 +220,7 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── 分块渲染工具 ──
-function isTableRow(line) { const t = line.trim(); if (!t.includes('|')) return false; return t.split('|').filter(p => p.trim()).length >= 2; }
-function isListItem(line) { return /^(\s*)[-*+](\s+)/.test(line) || /^(\s*)\d+[.)]\s/.test(line); }
-function splitBlocks(text) {
-  if (!text) return [];
-  const lines = text.split('\n'); const blocks = []; let start = 0; let state = 0; /* 0=PARA 1=FENCE 2=TABLE 3=LIST */
-  const flush = (end) => { const b = lines.slice(start, end).join('\n').trim(); if (b) blocks.push(b); start = end; };
-  for (let i = 0; i < lines.length; i++) {
-    const ln = lines[i], t = ln.trim();
-    if (state === 1) { if (i > start && /^```\s*$/.test(t)) { flush(i + 1); state = 0; start = i + 1; } continue; }
-    if (state === 2) { if (t === '' || !isTableRow(ln)) { flush(i); state = 0; if (t !== '') i--; else start = i + 1; } continue; }
-    if (state === 3) { if (t === '') { let j = i + 1; while (j < lines.length && lines[j].trim() === '') j++; if (j >= lines.length || !isListItem(lines[j])) { flush(i); state = 0; start = i + 1; } } else if (!isListItem(ln)) { flush(i); state = 0; i--; start = i + 1; } continue; }
-    if (/^```/.test(t)) { flush(i); state = 1; start = i; }
-    else if (isTableRow(ln) && (i === 0 || lines[i - 1].trim() === '')) { flush(i); state = 2; start = i; }
-    else if (isListItem(ln) && (i === 0 || lines[i - 1].trim() === '')) { flush(i); state = 3; start = i; }
-    else if (t === '') { flush(i); start = i + 1; }
-  }
-  if (start < lines.length) { let r = lines.slice(start).join('\n').replace(/\n+$/, ''); if (r) blocks.push(r); }
-  return blocks;
-}
-function validateHtml(html) { const po = (html.match(/<pre[\s>]/g) || []).length, pc = (html.match(/<\/pre>/g) || []).length, co = (html.match(/<code[\s>]/g) || []).length, cc = (html.match(/<\/code>/g) || []).length; return po === pc && co === cc; }
-function renderBlock(text, validate) { let h; try { h = marked.parse(text); } catch (_) { return escHtml(text); } if (validate && !validateHtml(h)) return escHtml(text); return h; }
+
 function scroll() { scrollContainer.scrollTop = scrollContainer.scrollHeight; }
 
 function setButtonStop() {
@@ -285,7 +266,7 @@ async function send(followupText) {
     <div class="flex items-center justify-center h-10 w-10 rounded-full bg-indigo-500 flex-shrink-0 text-white text-xs font-bold">AI</div>
     <div class="ml-3 flex-1 min-w-0 msg-col">
       <div class="thinking-box" style="display:none"><details open><summary>思考过程</summary><div class="thinking-content"></div></details></div>
-      <div class="relative text-sm bg-white py-2 px-4 shadow rounded-xl msg-content"><div class="md-settled"></div><div class="md-pending"></div></div>
+      <div class="relative text-sm bg-white py-2 px-4 shadow rounded-xl msg-content"></div>
     </div>
   </div>`;
   chatMessages.appendChild(aiWrap);
@@ -297,9 +278,11 @@ async function send(followupText) {
   let fullText = '';
   let thinkingText = '';
   let thinkingSeen = false;
-  let blockCursor = 0;
-  const settledEl = aiDiv.querySelector('.md-settled');
-  const pendingEl = aiDiv.querySelector('.md-pending');
+  // streaming-markdown 实例
+  const smd = await smdP;
+  const mdOut = document.createElement('div'); mdOut.className = 'md-output';
+  aiDiv.appendChild(mdOut);
+  const mkp = smd.parser(smd.default_renderer(mdOut));
 
   try {
     abortController = new AbortController();
@@ -351,14 +334,14 @@ async function send(followupText) {
         } else if (data.type === 'content') {
           if (aiDiv.style.display === 'none') aiDiv.style.display = '';
           fullText += data.text;
-          try {
-            const html = marked.parse(fullText);
-            aiDiv.innerHTML = '<div class="md-settled">' + html + '</div><div class="md-pending"><span class="md-cursor"></span></div>';
-          } catch (e) { console.error('content error:', e); }
+          smd.parser_write(mkp, data.text);
+          let cur = aiDiv.querySelector('.md-cursor');
+          if (!cur) { cur = document.createElement('span'); cur.className = 'md-cursor'; aiDiv.appendChild(cur); }
+          else aiDiv.appendChild(cur);
           scroll();
         } else if (data.type === 'done') {
-          const html = marked.parse(fullText);
-          aiDiv.innerHTML = '<div class="md-settled">' + html + '</div><div class="md-pending"></div>';
+          smd.parser_end(mkp);
+          const cur = aiDiv.querySelector('.md-cursor'); if (cur) cur.remove();
           if (FOLLOWUPS.length) {
             const fu = document.createElement('div');
             fu.className = 'mt-2 flex gap-1.5 flex-wrap';

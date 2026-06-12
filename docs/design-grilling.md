@@ -455,5 +455,8 @@
 - **CSS 体系**：pi 风格表格、字体、标题扁平化、代码块样式全部生效
 - **提示词**：模块一改按需参考、模块四从 6 条缩为 2 条
 - **marked 升级**：CDN v1 → v12（v17 无 UMD build）
-- **分块状态机**：`splitBlocks()` 已实现，但因 cursor 在 DeepSeek chunk 粒度下跳变（blocks 数 21 → 20），暂时回退为全量 `marked.parse()` 渲染
+- **增量渲染**：自研状态机废弃 → 改用 `streaming-markdown`（v0.2.15，3KB gzip，vanilla JS）
+  - API：`parser_write(p, chunk)` 喂 chunk，`parser_end(p)` 结束
+  - 核心策略：只追加新 DOM 元素，从不修改已有元素（ChatGPT 同款）
+  - 加载方式：动态 `import()` 避免 ES module 作用域问题
 - **安全配置**：`marked.use()` tokenizer 覆盖与 marked@12 UMD 不兼容，暂时移除
